@@ -1,0 +1,31 @@
+# Android / Gradle 构建产物
+*.iml
+.gradle/
+/build/
+/app/build/
+/app/release/
+/captures
+.externalNativeBuild
+.cxx
+
+# 本机环境 / IDE 配置
+/local.properties
+/.idea/
+/.kotlin/
+/.icon/
+.DS_Store
+
+# 体积较大的本地产物，不入库（debug APK、发布包、UI 调试截图）
+*.apk
+*.zip
+/dist/
+/*.png
+
+# 本地工作记忆与自动化配置（含个人笔记，不公开）
+/.workbuddy/
+
+# 第三方书源数据：规则与网址索引涉及版权与合规，需自行导入
+/书源/
+
+# v3.8 时期的历史操作指南，功能描述已过时，由 README.md 取代
+/零基础操作指南.md

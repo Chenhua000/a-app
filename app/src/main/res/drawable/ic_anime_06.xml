@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF8769EA" android:pathData="M24,0 L84,0 A24,24 0 0,1 108,24 L108,84 A24,24 0 0,1 84,108 L24,108 A24,24 0 0,1 0,84 L0,24 A24,24 0 0,1 24,0 Z" />
+    <path android:fillColor="#46CF8CFF" android:pathData="M-4,26 A34,34 0 1,0 64,26 A34,34 0 1,0 -4,26 Z" />
+    <path android:fillColor="#37CF8CFF" android:pathData="M66,96 A26,26 0 1,0 118,96 A26,26 0 1,0 66,96 Z" />
+    <path android:fillColor="#FFFFF7F2" android:pathData="M28,22 A12,12 0 1,0 52,22 A12,12 0 1,0 28,22 Z" />
+    <path android:fillColor="#FFFFF7F2" android:pathData="M56,22 A12,12 0 1,0 80,22 A12,12 0 1,0 56,22 Z" />
+    <path android:fillColor="#9693A8FF" android:pathData="M34,22 A6,6 0 1,0 46,22 A6,6 0 1,0 34,22 Z" />
+    <path android:fillColor="#9693A8FF" android:pathData="M62,22 A6,6 0 1,0 74,22 A6,6 0 1,0 62,22 Z" />
+    <path android:fillColor="#FFFFF7F2" android:pathData="M24,58 A30,30 0 1,0 84,58 A30,30 0 1,0 24,58 Z" />
+    <path android:fillColor="#9693A8FF" android:pathData="M28,66 A6,6 0 1,0 40,66 A6,6 0 1,0 28,66 Z" />
+    <path android:fillColor="#9693A8FF" android:pathData="M68,66 A6,6 0 1,0 80,66 A6,6 0 1,0 68,66 Z" />
+    <path android:fillColor="#FF2A1F51" android:pathData="M39.6,57 A4.4,4.4 0 1,0 48.4,57 A4.4,4.4 0 1,0 39.6,57 Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF2A1F51" android:strokeWidth="2.6" android:strokeLineCap="round" android:pathData="M58,57 Q64,50 70,57" />
+    <path android:fillColor="#E6FFFFFF" android:pathData="M43.8,55.6 A1.6,1.6 0 1,0 47,55.6 A1.6,1.6 0 1,0 43.8,55.6 Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF2A1F51" android:strokeWidth="2" android:strokeLineCap="round" android:pathData="M50,68 Q54,72 58,68" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M84,15 L86.7,22.28 L94.46,22.6 L88.37,27.42 L90.47,34.9 L84,30.6 L77.53,34.9 L79.63,27.42 L73.54,22.6 L81.3,22.28 Z" />
+</vector>

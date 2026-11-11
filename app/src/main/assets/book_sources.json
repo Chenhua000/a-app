@@ -1,0 +1,1828 @@
+[
+ {
+  "name": "笔趣阁",
+  "baseUrl": "https://www.bqg9.xyz",
+  "searchUrl": "https://www.bqg9.xyz/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 10,
+  "rules": {
+   "search": {
+    "list": "table.grid@tr",
+    "name": "td.0@a@text",
+    "author": "td.2@text",
+    "cover": "",
+    "summary": "",
+    "url": "td.0@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#list@dl@dd@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "#content@html",
+    "remove": [
+     "script",
+     "ins",
+     "iframe"
+    ],
+    "replace": [
+     {
+      "from": "&nbsp;",
+      "to": " "
+     },
+     {
+      "from": "<br\\s*/?>\\s*<br\\s*/?>",
+      "to": "</p><p>"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "番茄小说",
+  "baseUrl": "https://fanqienovel.com",
+  "searchUrl": "https://fanqienovel.com/search/{{key}}",
+  "charset": "utf-8",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 11,
+  "rules": {
+   "search": {
+    "list": ".search-result-list@div",
+    "name": ".book-name@text",
+    "author": ".author-name@text",
+    "cover": ".book-cover@img@src",
+    "summary": "",
+    "url": ".book-name@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "div.chapter-item@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".muye-reader-content@html",
+    "remove": [
+     "script",
+     ".ad"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "起点中文网",
+  "baseUrl": "https://www.qidian.com",
+  "searchUrl": "https://www.qidian.com/so/{{key}}.html",
+  "charset": "utf-8",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 12,
+  "rules": {
+   "search": {
+    "list": ".book-img-text@ul@li",
+    "name": ".book-mid-info@h4@a@text",
+    "author": ".author@a.0@text",
+    "cover": ".book-img-cover@img@src",
+    "summary": ".intro@text",
+    "url": ".book-mid-info@h4@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#j-catalogWrap@ul@li@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "/chapter",
+    "remove": []
+   },
+   "content": {
+    "selector": ".read-content@html",
+    "remove": [
+     "script",
+     ".ad",
+     "div.chapter-comment"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "书旗小说",
+  "baseUrl": "https://www.shuqi.com",
+  "searchUrl": "https://www.shuqi.com/search?keyword={{key}}",
+  "charset": "utf-8",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 13,
+  "rules": {
+   "search": {
+    "list": ".search-list@li",
+    "name": ".book-name@text",
+    "author": ".book-author@text",
+    "cover": ".book-cover@img@src",
+    "summary": ".book-desc@text",
+    "url": ".book-name@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".chapter-list@li@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "#content@html",
+    "remove": [
+     "script",
+     ".ad"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "晋江文学城",
+  "baseUrl": "https://www.jjwxc.net",
+  "searchUrl": "https://www.jjwxc.net/search.php?kw={{key}}&t=1",
+  "charset": "gb18030",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 14,
+  "rules": {
+   "search": {
+    "list": "#search_result@.onebook",
+    "name": "h2@a@text",
+    "author": "h5@text",
+    "cover": "",
+    "summary": "",
+    "url": ".h2@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#cytable@tbody@tr@td.1@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "onechapter",
+    "remove": []
+   },
+   "content": {
+    "selector": "#content@html",
+    "remove": [
+     "script",
+     ".ad"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "七猫小说",
+  "baseUrl": "https://www.qimao.com",
+  "searchUrl": "https://www.qimao.com/search?keyword={{key}}",
+  "charset": "utf-8",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 15,
+  "rules": {
+   "search": {
+    "list": ".search-list@div",
+    "name": ".book-title@text",
+    "author": ".book-author@text",
+    "cover": ".book-img@img@src",
+    "summary": "",
+    "url": ".book-title@a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".chapter-list@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".chapter-content@html",
+    "remove": [
+     "script",
+     ".ad"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "飞卢小说·手机版",
+  "baseUrl": "https://wap.faloo.com",
+  "searchUrl": "https://wap.faloo.com/Search.aspx?keyword={{key}}",
+  "charset": "gb18030",
+  "group": "热门",
+  "enabled": true,
+  "sortOrder": 16,
+  "rules": {
+   "search": {
+    "list": ".book-list@li",
+    "name": ".book-name@text",
+    "author": ".book-author@text",
+    "cover": "",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".chapter-list@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "#content@html",
+    "remove": [
+     "script",
+     ".ad"
+    ],
+    "replace": []
+   }
+  }
+ },
+ {
+  "name": "独步小说",
+  "baseUrl": "https://www.dbxsd.com",
+  "searchUrl": "https://www.dbxsd.com/plus/search.php?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "td.1@text",
+    "name": "a.0@text",
+    "list": "tbody@tr",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "class.col-md-6 item@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#cont-body@p@text",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "奇书网吧",
+  "baseUrl": "http://www.xqishuta.org",
+  "searchUrl": "http://www.xqishuta.org/search.html?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "td.2@text",
+    "name": "td.1@a@text",
+    "list": "tbody@tr!0",
+    "url": "td.1@a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "a@text",
+    "pageUrl": ".showDown@li.0@a@href",
+    "list": ".pc_list.1@li",
+    "url": "a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#content1@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "空白小说",
+  "baseUrl": "http://www.35ge.info",
+  "searchUrl": "http://www.35ge.info/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": ".s2@a@href",
+    "summary": "",
+    "author": ".s4@text",
+    "name": ".s2@text",
+    "list": "class.novelslist2@ul@li!0",
+    "url": ".s2@a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "#list@dl@dd@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "万象书城",
+  "baseUrl": "https://www.wxscs.com",
+  "searchUrl": "https://www.wxscs.com/plus/search.php?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "a.0@href",
+    "summary": "",
+    "author": "td.1@text",
+    "name": "a.0@text",
+    "list": "tbody tr",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "#all-chapter a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#cont-body@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "笔尚小说",
+  "baseUrl": "https://www.bsxiaoshuo.com",
+  "searchUrl": "https://www.bsxiaoshuo.com/s.php?sid=3&k={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "p.0@text",
+    "author": "p.1@textNodes",
+    "name": "b@text",
+    "list": "#j li",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "a@text",
+    "pageUrl": ".index@href",
+    "list": ".float-list li",
+    "url": "a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": ".page-content@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "关于小说",
+  "baseUrl": "http://www.rulianshi.cc",
+  "searchUrl": "http://www.rulianshi.cc/s.php?ie=utf-8&q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "",
+    "author": "class.author@text",
+    "name": "h4@a@text",
+    "list": "class.bookbox",
+    "url": "h4@a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "a@text",
+    "pageUrl": "",
+    "list": "class.listmain@dd",
+    "url": "a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [
+     {
+      "from": "http.*html|请记住本书首发.*org",
+      "to": ""
+     }
+    ],
+    "selector": "id.content@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "稻草书屋",
+  "baseUrl": "https://www.iidcr.com",
+  "searchUrl": "https://www.iidcr.com/plus/search.php?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "a.0@href",
+    "summary": "",
+    "author": "td.1@text",
+    "name": "a.0@title",
+    "list": "tbody tr",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "#all-chapter a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#cont-body@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "三千小说",
+  "baseUrl": "http://www.xs3000.com",
+  "searchUrl": "http://www.xs3000.com/index/cate?wd={{key}}&submit=",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": ".book-img-box@img@src",
+    "summary": "p.2@text",
+    "author": "span.0@text",
+    "name": "a.1@text",
+    "list": ".clear@li",
+    "url": "a.1@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": ".mubtn@a@href",
+    "list": "-.catalog_b@li@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": ".read-content@textNodes",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "快眼看书",
+  "baseUrl": "http://www.xbotaodz.info",
+  "searchUrl": "http://www.xbotaodz.info/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "class.pt-ll-l@tag.a@tag.img@src",
+    "summary": "",
+    "author": "class.info@tag.span.1@text",
+    "name": "class.info@tag.span.0@tag.a@text",
+    "list": "class.librarylist@tag.li",
+    "url": "class.info@tag.span.0@tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "class.fulldir@tag.ul@tag.li@tag.a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.chaptercontent@textNodes",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "奇书网包",
+  "baseUrl": "http://www.xqishuta.org",
+  "searchUrl": "http://www.xqishuta.org/search.html?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "class.odd.1@text",
+    "name": "class.even@tag.a@text",
+    "list": "class.grid@tag.tr!0",
+    "url": "class.even@tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "class.showDown@tag.a.0@href",
+    "list": "class.pc_list@tag.li",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [
+     {
+      "from": "最新网址：www.xqishuta.com",
+      "to": ""
+     }
+    ],
+    "selector": "id.content1@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "晚怒小说",
+  "baseUrl": "http://m.rulianshi.cc",
+  "searchUrl": "http://m.rulianshi.cc/s.php?q={{key}}&submit=",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "",
+    "author": "p.3@text",
+    "name": "h2@text",
+    "list": "class.block",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "[property=\"og:novel:read_url\"]@content",
+    "list": "class.cover@tag.ul.1@tag.a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "class.nr_nr@tag.div.1@textNodes",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "夜天连看",
+  "baseUrl": "http://www.xyetianlian.com",
+  "searchUrl": "http://www.xyetianlian.com/s.php?ie=utf-8&q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "tag.img@src",
+    "summary": "tag.p@text",
+    "author": "class.author@text",
+    "name": "tag.h4@text",
+    "list": "class.bookbox",
+    "url": "tag.a.1@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "",
+    "list": "class.listmain@tag.dd!0:1:2:3:4:5:6:7:8:9:10:11",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "玫瑰言情",
+  "baseUrl": "https://www.mgyqw.com",
+  "searchUrl": "https://www.mgyqw.com/modules/article/search.php?searchtype=0&searchkey={{key}}",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "cover": "tag.a.0@href",
+    "summary": "",
+    "author": "tag.a.2@text",
+    "name": "tag.a.0@text",
+    "list": "id.tbody_list@tr",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "text.点击阅读@href",
+    "list": "class.list_li@li@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.bookContent@p@textNodes",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "落霞小说",
+  "baseUrl": "https://luoxiadushu.com",
+  "searchUrl": "https://luoxiadushu.com/?s={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "",
+    "name": "tag.a@text",
+    "list": "class.cat-search-item",
+    "url": "tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "class.book-list@tag.li@tag.a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.nr1@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "书耽中文",
+  "baseUrl": "http://m.shubl.com",
+  "searchUrl": "http://m.shubl.com/index/search_book?key={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "class.lazyload@data-original",
+    "summary": "class.summaries@text",
+    "author": "class.author@text",
+    "name": "class.title@text",
+    "list": "class.book-list@tag.li",
+    "url": "tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@class.chapter-title@text",
+    "pageUrl": "class.container.1@tag.a@href",
+    "list": "class.list@tag.li",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.J_BookRead@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "签名诗句优",
+  "baseUrl": "https://www.gexingshuo.com",
+  "searchUrl": "https://www.gexingshuo.com/search/{{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "class.left_img@tag.img@src",
+    "summary": "tag.li.0@tag.p.0@text",
+    "author": "",
+    "name": "tag.h5.0@tag.a@text",
+    "list": "class.section-list@tag.li",
+    "url": "tag.h5.0@tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.h1@text",
+    "pageUrl": "",
+    "list": "class.artcle@h1",
+    "url": "class.artcle@tag.div.4@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "class.artcle-con@html",
+    "remove": []
+   }
+  },
+  "group": "bz"
+ },
+ {
+  "name": "大帝书阁",
+  "baseUrl": "http://www.bbqsk.info",
+  "searchUrl": "http://www.bbqsk.info/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "tag.a.0@href",
+    "summary": "",
+    "author": "",
+    "name": "class.even@tag.a@text",
+    "list": "class.grid@tr",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "",
+    "list": "id.bgdiv@tag.td",
+    "url": "tag.a.0@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@textNodes",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "思路客",
+  "baseUrl": "http://www.isiluke.la",
+  "searchUrl": "http://www.isiluke.la/search.html?name={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "tag.a.1@text",
+    "name": "tag.a.0@text",
+    "list": "class.novelslist2@tag.li!0",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "id.list@tag.dd!0:1:2:3:4:5:6:7:8:9:10:11@tag.a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "小说",
+  "baseUrl": "http://www.xyetianlian.com",
+  "searchUrl": "http://www.xyetianlian.com/s.php?ie=utf-8&q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "",
+    "author": "class.author@text",
+    "name": "class.bookname@text",
+    "list": "class.bookbox",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "a@text",
+    "pageUrl": "",
+    "list": "dd",
+    "url": "a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "div#content.showtxt@text",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "开心文学网",
+  "baseUrl": "https://www.kxdu.net",
+  "searchUrl": "https://www.kxdu.net/search/{{key}}.html",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "a.2@text",
+    "name": "a.0@text",
+    "list": ".grid@tr!0",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": ".chapterNum@li@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": ".mainContenr@p@text",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "顶点中文",
+  "baseUrl": "http://www.bbqsk.info",
+  "searchUrl": "http://www.bbqsk.info/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "tag.a.0@href",
+    "summary": "",
+    "author": "",
+    "name": "class.even.0@tag.a.0@text",
+    "list": "class.grid@tr",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "",
+    "list": "id.bgdiv@tag.td",
+    "url": "tag.a.0@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@textNodes",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "潇湘书院",
+  "baseUrl": "https://www.xxsy.net",
+  "searchUrl": "https://www.xxsy.net/search/{{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "a img@src",
+    "summary": ".detail@text",
+    "author": "h4 a.1@textNodes",
+    "name": "h4 a.0@text",
+    "list": ".result-list li",
+    "url": "a.1@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "a@text||li[style~=width:100%;]@text",
+    "pageUrl": "text.目录@href",
+    "list": ".profile-main li",
+    "url": "a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#content@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "逐浪小说",
+  "baseUrl": "https://m.zhulang.com",
+  "searchUrl": "https://m.zhulang.com/search/index.html?k={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@data-src",
+    "summary": "",
+    "author": "h4@text",
+    "name": "h3@text",
+    "list": "id.ret-list@li",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "text.开始阅读@href",
+    "list": "class.idx-ol@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "class.rd-txt@p@text",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "五二书库",
+  "baseUrl": "https://www.52shuku.net",
+  "searchUrl": "https://www.52shuku.net/so/search.php?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": ".note@text",
+    "author": "header@h2@h4@text",
+    "name": "header@h2@h4@text",
+    "list": "div@.excerpt",
+    "url": "header@h2@a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": ".clearfix@.mulu@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [
+     {
+      "from": "目录\\s+上一页.*|Tips.*|传送门：.*",
+      "to": ""
+     }
+    ],
+    "selector": ".article-content@p@all",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "夜天连看",
+  "baseUrl": "http://www.xyetianlian.com",
+  "searchUrl": "http://www.xyetianlian.com/s.php?ie=gbk&q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "tag.img@src",
+    "summary": "tag.p@text",
+    "author": "class.author@text",
+    "name": "tag.h4@text",
+    "list": "class.bookbox",
+    "url": "tag.a.1@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "",
+    "list": "class.listmain@tag.dd!0:1:2:3:4:5:6:7:8:9:10:11",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "顶点中文",
+  "baseUrl": "http://wap.bbqsk.info",
+  "searchUrl": "http://wap.bbqsk.info/s.php?keyword={{key}}&t=1",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": "tag.a@tag.p.1@text",
+    "name": "tag.a@tag.p.0@text",
+    "list": "class.hot_sale",
+    "url": "tag.a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "text.开始阅读@href",
+    "list": "id.chapterlist@tag.p!0",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [
+     {
+      "from": "天才一秒记住本站.*无广告!|（本章未完.*下一页继续阅读）|『加入书签，方便阅读』|第.*页\\)",
+      "to": ""
+     }
+    ],
+    "selector": "id.chaptercontent@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "飞卢小说#2",
+  "baseUrl": "http://tongren.faloo.com",
+  "searchUrl": "http://tongren.faloo.com/r/0/1.html?t=1&k={{key}}",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "cover": "class.l_pic@tag.img@src",
+    "summary": "class.a_333@tag.a.0@text",
+    "author": "tag.a.2@text",
+    "name": "tag.h1.0@text",
+    "list": "class.l_main1@class.l_bar",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "tag.a@text",
+    "pageUrl": "",
+    "list": "class.ni_list@tag.td",
+    "url": "tag.a@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": ".noveContent@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "穿越小说",
+  "baseUrl": "http://www.kk169.la",
+  "searchUrl": "http://www.kk169.la/modules/article/search.php?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "div.c_description@text",
+    "author": "div.c_tag:nth-of-type(2) span:nth-of-type(2)@text",
+    "name": ".c_subject a@text",
+    "list": "div.c_row",
+    "url": ".c_subject a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "a.b_hot@href",
+    "list": ".chapter a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [
+     {
+      "from": "\\(穿越小说 [a-zA-Z0-9]+.[a-zA-Z0-9]+.[a-zA-Z0-9]+\\)|穿越小说 [a-zA-Z0-9]+.[a-zA-Z0-9]+.[a-zA-Z0-9]+",
+      "to": ""
+     }
+    ],
+    "selector": "div.acontent@textNodes",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "八零电子",
+  "baseUrl": "http://www.80ge.info",
+  "searchUrl": "http://www.80ge.info/modules/article/search.php?searchkey={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "",
+    "author": "tag.p.0@a@text",
+    "name": "class.bookname@text",
+    "list": "class.storelistbt5",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "text.在线阅读_目录@href",
+    "list": "id.yulan@li@a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "id.content@textNodes",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "爱读小说",
+  "baseUrl": "https://m.95dxs.com",
+  "searchUrl": "https://m.95dxs.com/search/{{key}}.html",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "",
+    "summary": "",
+    "author": ".author@text",
+    "name": ".waps_name@text",
+    "list": ".waps_one",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "chaptername",
+    "pageUrl": "/ajaxService?action=chapterlist&articleno={{String(baseUrl).match(/\\d+(?=\\.)/)[0]}}&index=0&size=99999&sort=1",
+    "list": "items",
+    "url": "url",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#nr p@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "猫九小说",
+  "baseUrl": "http://www.maojiuxs.com",
+  "searchUrl": "http://www.maojiuxs.com/book/all.html?s={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": ".imgbox img@src",
+    "summary": ".instro@text",
+    "author": ".author@text",
+    "name": ".name@text",
+    "list": ".recom_top li||.book_con li",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": ".tabs_header a.1@href",
+    "list": ".recommendeddirectory a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#showReading@p@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "栀子欢吧",
+  "baseUrl": "http://m.zhizihuan.com",
+  "searchUrl": "http://s.zhizihuan.com/m/?key={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "cover": "img@src",
+    "summary": "",
+    "author": "p.1@textNodes",
+    "name": "p.0@text",
+    "list": ".column-2",
+    "url": "a@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": ".g_btn a@href",
+    "list": ".list_li li a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "#htmlContent@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "飞卢小说",
+  "baseUrl": "https://b.faloo.com",
+  "searchUrl": "https://b.faloo.com/l/0/1.html?t=1&k={{key}}",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "cover": "class.TYImg@tag.img.0@data-original",
+    "summary": "class.TwoBox02_06@tag.a.0@text",
+    "author": "class.TwoBox02_09@tag.a.0@text",
+    "name": "class.TwoBox02_08@tag.a.0@text",
+    "list": "class.TwoBox02_02",
+    "url": "class.TwoBox02_03@tag.a.0@href"
+   },
+   "toc": {
+    "contains": "",
+    "name": "@text",
+    "pageUrl": "",
+    "list": "#mulu > div.DivTable > div > div > a",
+    "url": "@href",
+    "remove": []
+   },
+   "content": {
+    "replace": [],
+    "selector": "class.noveContent@html",
+    "remove": []
+   }
+  },
+  "group": "1"
+ },
+ {
+  "name": "可能世界",
+  "baseUrl": "https://wenxue.bkneng.com/wap",
+  "searchUrl": "https://wenxue.bkneng.com/wap/index/search?keyword={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "class.clearfix indexBookList_In",
+    "name": "class.left indexBookList_InRight@class.indexBookList_Name@text",
+    "author": "class.left indexBookList_InRight@class.indexBookList_AuthorName@text",
+    "cover": "img@src",
+    "summary": "class.indexBookList_synopsis@text",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "class.lookingHot nolooking@tag.a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "class.myContent@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "SF轻小说",
+  "baseUrl": "http://[图片]http://www.sfacg.com已校验",
+  "searchUrl": "http://s.sfacg.com/?Key={{key}}&S=1&SS=0",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "tag.ul",
+    "name": "tag.a.0@text",
+    "author": "tag.br@text",
+    "cover": "tag.img@src",
+    "summary": "",
+    "url": "tag.a@href"
+   },
+   "toc": {
+    "pageUrl": "text.点击阅读@href",
+    "list": "class.catalog-list@tag.li",
+    "name": "tag.a@text",
+    "url": "tag.a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "class.article-content font16@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "古龙武侠网",
+  "baseUrl": "http://m.gulongbbs.com",
+  "searchUrl": "http://m.gulongbbs.com/index.php?m=search&c=index&a=init&typeid=1&siteid=1&q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "class.c wrap@li||table@tr@td",
+    "name": "h5@text||text",
+    "author": "",
+    "cover": "",
+    "summary": "tag.p@text",
+    "url": "tag.a.0@href"
+   },
+   "toc": {
+    "pageUrl": "class.crumbs@tag.a.-1@href",
+    "list": "table@tr@td@a||class.list@li@a||html",
+    "name": "class.title@text||text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "id.div_content@html||class.content@html",
+    "remove": [],
+    "replace": [
+     {
+      "from": "内容关联投票|[\\s\\S]+?敬请关注 \"古龙武侠网\" 微信公众号|.*全面支持https访问",
+      "to": ""
+     }
+    ]
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "四三看书",
+  "baseUrl": "http://m.43kanshu.com",
+  "searchUrl": "https://www.sososhu.com/?site=m43kanshu&q={{key}}##$##",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": ".block > div > div:nth-child(n+1)",
+    "name": "a@text||img@alt",
+    "author": "span@text",
+    "cover": "img@src",
+    "summary": "dd@text",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "id.ul_all_chapters@li",
+    "name": "a@text",
+    "url": "a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "id.nr@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "明智屋吧",
+  "baseUrl": "https://www.mingzw.net",
+  "searchUrl": "https://www.mingzw.net/mzwlist/{{key}}.html",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "class.figure-horizontal figure-1",
+    "name": "a.1@text",
+    "author": "dd.0@text",
+    "cover": "img@src",
+    "summary": "p@text",
+    "url": "a.1@href"
+   },
+   "toc": {
+    "pageUrl": "text.查看目录@href",
+    "list": "class.content gclearfix@ul@li!-1:-2:-3",
+    "name": "a@text",
+    "url": "a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "class.contents@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "豆花文学",
+  "baseUrl": "https://www.douhuawenxue.com",
+  "searchUrl": "https://www.douhuawenxue.com/search?kd={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": ".book-base",
+    "name": "h3@a@text",
+    "author": ".book_author@text",
+    "cover": "img@src",
+    "summary": ".book_ct@text",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".list-inline-3@.list_item@a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "id.J_chapterContent@p@textNodes",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "梧桐中文",
+  "baseUrl": "http://www.wtzw.com",
+  "searchUrl": "http://www.wtzw.com/search-{{key}}.html?null",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "class.searchList@li",
+    "name": "class.sTit@text",
+    "author": "tag.a.2@text",
+    "cover": "tag.img@src",
+    "summary": "",
+    "url": "class.sTit@tag.a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "class.w_ulTxt w_ulTxt_3 clearfix@tag.li",
+    "name": "tag.a@text",
+    "url": "tag.a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "class.article@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "哎呦文学",
+  "baseUrl": "https://www.auwxw.com",
+  "searchUrl": "https://www.auwxw.com/aulist/{{key}}.html",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "table@tbody@tr!0",
+    "name": "td.0@text",
+    "author": "td.1@text",
+    "cover": "",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": ".nbs_1.2@a@href",
+    "list": "tbody@tr@td",
+    "name": "a@text",
+    "url": "a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".ReadContents@textNodes",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61"
+ },
+ {
+  "name": "爱下电子书",
+  "baseUrl": "https://ixdzs8.com",
+  "searchUrl": "https://ixdzs8.com/bsearch?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": ".u-list > li",
+    "name": "a@text",
+    "author": "",
+    "cover": "img@src",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".u-chapter > li",
+    "name": "@text",
+    "url": "@href",
+    "contains": "/read/383523/",
+    "remove": []
+   },
+   "content": {
+    "selector": ".page-content",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "自动发现"
+ },
+ {
+  "name": "全本小说[自写]",
+  "baseUrl": "https://www.wanbenxs.cc",
+  "searchUrl": "https://www.wanbenxs.cc/search/?searchkey={{key}}",
+  "charset": "UTF-8",
+  "rules": {
+   "search": {
+    "list": "#hotcontent div > div",
+    "name": "a@text",
+    "author": "",
+    "cover": "img@src",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#list dl > a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "/95470/",
+    "remove": []
+   },
+   "content": {
+    "selector": ".box_con",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "自动发现"
+ },
+ {
+  "name": "爱下电子书·新",
+  "baseUrl": "https://ixdzs.tw",
+  "searchUrl": "https://ixdzs.tw/bsearch?q={{key}}",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": ".u-list > li",
+    "name": "a@text",
+    "author": "",
+    "cover": "img@src",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".u-chapter > li",
+    "name": "@text",
+    "url": "@href",
+    "contains": "/read/383523/",
+    "remove": []
+   },
+   "content": {
+    "selector": ".page-content",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "自动发现"
+ },
+ {
+  "name": "开心文学网·新",
+  "baseUrl": "https://www.kxdu.net",
+  "searchUrl": "https://www.kxdu.net/search?key={{key}}",
+  "charset": "UTF-8",
+  "rules": {
+   "search": {
+    "list": "#navList table > tr",
+    "name": "a@text",
+    "author": "",
+    "cover": "",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#content2 > li",
+    "name": "@text",
+    "url": "@href",
+    "contains": "/book/",
+    "remove": []
+   },
+   "content": {
+    "selector": "#container",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "自动发现"
+ },
+ {
+  "name": "二次元小说网",
+  "baseUrl": "https://www.erciyuan666.com",
+  "searchUrl": "https://www.erciyuan666.com/?s={{key}}",
+  "charset": "UTF-8",
+  "rules": {
+   "search": {
+    "list": "ul > li",
+    "name": "a@text",
+    "author": "",
+    "cover": "",
+    "summary": "",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "ul > li",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "#container",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "自动发现"
+ },
+ {
+  "name": "手机看书",
+  "baseUrl": "https://www.sjks88.com",
+  "searchUrl": "post::https://www.sjks88.com/e/search/index.php||keyboard={{key}}&show=title&classid=0",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "list": ".box ul li",
+    "name": "a.0@text",
+    "author": "",
+    "cover": "",
+    "summary": "p@text",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".list li a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".content@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61",
+  "_indexSyntax": true
+ },
+ {
+  "name": "全本同人",
+  "baseUrl": "https://qbtr.cc",
+  "searchUrl": "post::https://www.qbtr.cc/e/search/index.php||keyboard={{key}}&show=title&classid=0",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "list": ".bk",
+    "name": "a@text",
+    "author": ".booknews@textNodes",
+    "cover": "{{$.coverUrl}}http://u3v.cn/5zBiW8",
+    "summary": "p@text",
+    "url": "a@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": ".clearfix li a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".read_chapterDetail@p@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61",
+  "_indexSyntax": false
+ },
+ {
+  "name": "无奈书库",
+  "baseUrl": "https://www.52shuku123.org",
+  "searchUrl": "post::https://www.52shuku123.org/modules/article/search.php||searchkey={{key}}&action=login",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "list": ".bookbox",
+    "name": "h4@text",
+    "author": ".author.0@text",
+    "cover": "a.0@href",
+    "summary": ".update@ownText",
+    "url": "a.0@href"
+   },
+   "toc": {
+    "pageUrl": "",
+    "list": "#list-chapterAll dd a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": ".readcontent@textNodes",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61",
+  "_indexSyntax": true
+ },
+ {
+  "name": "新御宅",
+  "baseUrl": "https://m.xyuzhaiwu10.com",
+  "searchUrl": "post::https://m.xyuzhaiwu10.com/s.php||s={{key}}&type=articlename",
+  "charset": "gbk",
+  "rules": {
+   "search": {
+    "list": ".fk li",
+    "name": "a.1@text",
+    "author": "a.2@text",
+    "cover": "img@src",
+    "summary": "",
+    "url": "a.1@href"
+   },
+   "toc": {
+    "pageUrl": ".gengduo a@href",
+    "list": ".lb li a",
+    "name": "@text",
+    "url": "@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "#nr@html",
+    "remove": [],
+    "replace": []
+   }
+  },
+  "group": "报告61",
+  "_indexSyntax": true
+ },
+ {
+  "name": "顶点小说",
+  "baseUrl": "http://www.23uswx.la",
+  "searchUrl": "http://wap.ddsk.la/s.php?keyword={{key}}&t=1",
+  "charset": "utf-8",
+  "rules": {
+   "search": {
+    "list": "class.hot_sale",
+    "name": "tag.a@tag.p.0@text",
+    "author": "tag.a@tag.p.1@text",
+    "cover": "",
+    "summary": "",
+    "url": "tag.a@href"
+   },
+   "toc": {
+    "pageUrl": "text.开始阅读@href",
+    "list": "id.chapterlist@tag.p!0",
+    "name": "tag.a@text",
+    "url": "tag.a@href",
+    "contains": "",
+    "remove": []
+   },
+   "content": {
+    "selector": "id.chaptercontent@html",
+    "remove": [],
+    "replace": [
+     {
+      "from": "天才一秒记住本站.*无广告!|（本章未完.*下一页继续阅读）|『加入书签，方便阅读』|第.*页\\)",
+      "to": ""
+     }
+    ]
+   }
+  },
+  "group": "报告61",
+  "_indexSyntax": true
+ }
+]

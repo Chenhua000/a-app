@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 窗口底色：和 Compose 主题的 LightBackground(#F5F7FB) 保持一致，
+         避免首帧白闪 -->
+    <color name="window_background">#F5F7FB</color>
+
+    <!-- 应用图标底色，和卡通剑角色的背景色一致 -->
+    <color name="ic_launcher_background">#AAADFB</color>
+</resources>
