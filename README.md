@@ -32,23 +32,14 @@
 ```bash
 git clone https://github.com/Chenhua000/A-app.git
 cd A-app
-
-# 第一步必须先做：还原少量二进制资源
-python tools/restore_binaries.py
 ```
 
-然后用 **Android Studio** 打开项目根目录，等 Gradle Sync 完成即可运行 `:app`。
+启动图标 PNG、`gradle-wrapper.jar` 等二进制资源都已随仓库提交，clone 后直接可用。用 **Android Studio** 打开项目根目录，等 Gradle Sync 完成即可运行 `:app`。
 本机 SDK 路径写在 `local.properties`（该文件不入库）：
 
 ```properties
 sdk.dir=/path/to/Android/sdk
 ```
-
-### 为什么要 `restore_binaries.py`
-
-本仓库初始化时使用的上传通道只支持纯文本文件，所以 15 个启动图标 PNG 和 `gradle/wrapper/gradle-wrapper.jar` 以 base64 文本保存在 `assets/binaries/`，保持与原路径对应的目录结构。脚本会把它们还原到原位；已存在且内容一致的文件会跳过，可重复运行。
-
-**不还原的后果**：`./gradlew` 找不到 wrapper jar，且 `AndroidManifest.xml` 引用的 `@mipmap/ic_launcher` 资源缺失，项目无法编译。
 
 ### 命令行构建
 
@@ -80,8 +71,7 @@ app/src/main/java/com/example/myfirstapp/
 └── MyFirstApp.kt       # Application 初始化
 app/src/test/           # 本地单元测试
 gradle/                 # version catalog + wrapper
-tools/                  # 书源转换脚本、二进制还原脚本
-assets/binaries/        # 二进制资源的 base64 文本副本
+tools/                  # 书源转换辅助脚本
 ```
 
 ## 设计约定
