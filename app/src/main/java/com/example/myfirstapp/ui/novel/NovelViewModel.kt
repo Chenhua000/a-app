@@ -156,7 +156,7 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             currentCoroutineContext().ensureActive()
             val patched = patch(results)
             _searchState.value = if (patched.isEmpty()) {
-                val searched = enabledCount.coerceAtMost(60)
+                val searched = enabledCount.coerceAtMost(200)
                 NovelSearchState.Error(
                     "暂时没搜到《$keyword》。已启用 $enabledCount 个书源，本次并行检索了其中 $searched 个；" +
                     "书名可以不用太精确（如「斗破」「红楼」），换个部分书名再试。"

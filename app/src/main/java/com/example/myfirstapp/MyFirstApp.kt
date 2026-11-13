@@ -81,21 +81,26 @@ class MyFirstApp : Application() {
         // 规则/搜索地址修正后的强制刷新：v3.55 起修复了原转换里的 {{{key}}} 三花括号、
         // 相对地址没拼 baseUrl、|char=gbk 选项没剥离等问题（这些导致「一本都搜不到」）。
         // 条数没变（仍 1744），单靠上面的 count 自愈不会触发重导，所以用数据版本号强制 upsert 一次。
-        // v3.58：把内置 asset 里的 1744 条标记为 builtIn=true（真正「内置书源」，与笔趣阁一致）
-        val dataVer = 3
+        // v3.59：按原始 `enabled` 标志重导——只启用笔趣阁原本开启的 654 条（其余 1090 条保持关闭）。
+        // 以前把 1744 条全启用、又固定搜「可用」组按名字前 60 个，结果搜的全是坏源（60 个里仅 9 个好源），
+        // 所以「源一堆却一本搜不到」。现在只启用精选 654 条，跟笔趣阁一致。
+        val dataVer = 5
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {
+                // v3.59：用户要求去掉 56 书库，先从库里删掉这 3 条，再导入新版内置包（1741 条）
+                runCatching { repo.deleteSources(listOf("legado_0376", "legado_0691", "legado_1378")) }
                 val n = runCatching { repo.importSources(text, builtIn = true) }.getOrDefault(0)
-                if (n > 0) prefs.edit().putInt("legado_data_ver", dataVer).apply()
+                if (n > 0) {
+                    val expectedNow = runCatching { org.json.JSONArray(text).length() }.getOrDefault(1741)
+                    prefs.edit()
+                        .putInt("legado_expected", expectedNow)
+                        .putInt("legado_data_ver", dataVer)
+                        .apply()
+                }
             }
         }
-
-        // 全部启用（一次性迁移，兼顾老版本「导入即停用」的存量源）
-        if (!prefs.getBoolean("legado_enable_all_v1", false)) {
-            val enabled = runCatching { repo.enableAllBundledLegadoSources() }.getOrDefault(0)
-            if (enabled > 0) prefs.edit().putBoolean("legado_enable_all_v1", true).apply()
-        }
+        // 注意：故意**不再**调用 enableAllBundledLegadoSources（那会把 1090 条坏源也打开）。
     }
 
     private fun readLegadoAsset(): String? = runCatching {

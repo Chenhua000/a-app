@@ -23,9 +23,10 @@ class LegadoSourcesTest {
     @Test
     fun allSourcesAreImportable() {
         val array = sources()
-        assertEquals("笔趣阁书源应全量导入", 1744, array.length())
+        assertEquals("笔趣阁书源应全量导入（已移除 56 书库 3 条）", 1741, array.length())
         val ids = mutableSetOf<String>()
         var complete = 0
+        var enabledCount = 0
         for (i in 0 until array.length()) {
             val item = array.getJSONObject(i)
             val id = item.optString("id")
@@ -33,7 +34,8 @@ class LegadoSourcesTest {
             assertTrue("id 重复：$id", ids.add(id))
             assertTrue("$id 缺名称", item.optString("name").isNotBlank())
             assertTrue("$id 缺搜索地址", item.optString("searchUrl").isNotBlank())
-            assertTrue("$id 应默认启用", item.optBoolean("enabled", false))
+            // 只启用笔趣阁原本开启的 654 条（其余 1090 条默认关闭，避免搜索时混入坏源）
+            if (item.optBoolean("enabled", false)) enabledCount++
             assertTrue("$id 缺分组", item.optString("group").isNotBlank())
 
             val rules = BookRulesCodec.fromJson(item.optJSONObject("rules")?.toString().orEmpty())
@@ -44,6 +46,8 @@ class LegadoSourcesTest {
             ) complete++
         }
         assertTrue("规则齐全的书源应超过 1000 条，实际 $complete", complete > 1000)
+        assertEquals("应只启用笔趣阁原本开启的 653 条", 653, enabledCount)
+        assertTrue("不能全启用（否则会搜到坏源导致一本都搜不到）", enabledCount < array.length())
     }
 
     @Test
@@ -54,7 +58,7 @@ class LegadoSourcesTest {
             val group = array.getJSONObject(i).optString("group")
             groups[group] = (groups[group] ?: 0) + 1
         }
-        assertEquals(1744, groups.values.sum())
+        assertEquals(1741, groups.values.sum())
         assertTrue("应标记可用源", (groups["笔趣阁·可用"] ?: 0) > 1000)
         assertTrue("应标记含 JS 规则的源", (groups["笔趣阁·JS规则"] ?: 0) > 100)
         assertTrue("应标记 POST 搜索的源", (groups["笔趣阁·POST搜索"] ?: 0) > 0)

@@ -49,16 +49,10 @@ class BookRepository(private val database: AppDatabase) {
     fun observeShelf(): Flow<List<ShelfBookEntity>> = database.shelfBookDao().observeBooks()
 
     suspend fun ensureDefaultSources() = withContext(io) {
-        // v3.58 起不再内置古腾堡 / 维基文库这 3 条；老用户库里残留的这 3 条一并清掉。
-        database.bookSourceDao().deleteByIds(LEGACY_BUILT_IN_IDS)
-        // 用户要求「书源全部改为内置」：把剩下的源（1744 条笔趣阁 + 少量推荐包）统一标记为内置。
-        // 只改标记、不删数据，避免弄坏书架里已在用的书。
+        // 用户要求「只用笔趣阁的书源」：只保留 id 前缀 legado_ 的 1744 条内置源，
+        // 清掉本地导入的其它源（旧 3 条内置、56书库等推荐包）。每次启动执行，代价极小。
+        database.bookSourceDao().deleteNotByPrefix("legado_", 7)
         database.bookSourceDao().markAllBuiltIn()
-    }
-
-    private companion object {
-        /** 旧版本内置、v3.58 起要移除的 3 条硬编码书源 */
-        val LEGACY_BUILT_IN_IDS = listOf("gutenberg", "wikisource-cn", "wikisource-tw")
     }
 
     /**
@@ -69,18 +63,20 @@ class BookRepository(private val database: AppDatabase) {
      */
     suspend fun search(
         query: String,
-        sourceLimit: Int = 60,
+        sourceLimit: Int = 200,
         onPartial: ((List<BookSearchResult>) -> Unit)? = null
     ): List<BookSearchResult> =
         withContext(io) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
-            // 书源「全部默认启用」后启用集会有一千多个，直接 take 会因内置源 sortOrder 更小而
-            // 把内置源顶在最前、笔趣阁源永远轮不到。这里优先取「笔趣阁·可用」分组（纯 CSS、命中率高），
-            // 没有该分组时才退回全部启用源。
+            // 只在**已启用**的源里搜（现在只启用笔趣阁原本开启的 654 条，跟笔趣阁一致）。
+            // 「可用」组（纯 CSS、能真正解析）优先，其余已启用源垫后。
             val enabledSources = database.bookSourceDao().listSources().filter { it.enabled }
-            val preferred = enabledSources.filter { it.groupName == "笔趣阁·可用" }
-            val sources = (if (preferred.isNotEmpty()) preferred else enabledSources).take(sourceLimit)
+            val usable = enabledSources.filter { it.groupName == "笔趣阁·可用" }
+            val ordered = if (usable.isNotEmpty()) {
+                usable + enabledSources.filterNot { it.groupName == "笔趣阁·可用" }
+            } else enabledSources
+            val sources = ordered.take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
             fun clean(list: List<BookSearchResult>): List<BookSearchResult> = list
@@ -152,10 +148,12 @@ class BookRepository(private val database: AppDatabase) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
             val all = database.bookSourceDao().listSources()
-            var sources = all.filter { it.groupName == "笔趣阁·可用" }
-            if (sources.isEmpty()) sources = all.filter { it.enabled }
+            // 只搜**已启用**的源（笔趣阁原本开启的 654 条），「可用」精选优先
+            val enabled = all.filter { it.enabled }
+            val usable = enabled.filter { it.groupName == "笔趣阁·可用" }
+            var sources = usable + enabled.filterNot { it.groupName == "笔趣阁·可用" }
+            if (sources.isEmpty()) sources = all.filter { it.groupName == "笔趣阁·可用" }
             if (sources.isEmpty()) sources = all.filter { it.searchUrl.isNotBlank() }
-            // 默认覆盖全部「可用」源（1117 个），不再只取前 600 —— 否则书在后面的源里就永远搜不到
             sources = sources.take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
@@ -600,8 +598,9 @@ class BookRepository(private val database: AppDatabase) {
     }
 
     suspend fun resetDefaultSources() = withContext(io) {
-        // 内置书源现在就是 APK 里的 1744 条（MyFirstApp 首次启动导入），这里只需清掉旧的 3 条
-        database.bookSourceDao().deleteByIds(LEGACY_BUILT_IN_IDS)
+        // 内置书源现在就是 APK 里的 1744 条（MyFirstApp 首次启动导入），这里清掉其它非内置源
+        database.bookSourceDao().deleteNotByPrefix("legado_", 7)
+        database.bookSourceDao().markAllBuiltIn()
     }
 
     /**

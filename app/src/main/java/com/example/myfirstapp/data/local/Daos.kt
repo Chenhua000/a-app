@@ -180,6 +180,10 @@ interface BookSourceDao {
     /** 把所有书源标记为「内置」（用户要求：全部书源统一为内置，不再区分外置导入） */
     @Query("UPDATE book_sources SET builtIn = 1")
     suspend fun markAllBuiltIn()
+
+    /** 删除所有「非某前缀」的源：用于「只保留笔趣阁内置源」，清掉本地导入的推荐包 */
+    @Query("DELETE FROM book_sources WHERE substr(id, 1, :len) != :prefix")
+    suspend fun deleteNotByPrefix(prefix: String, len: Int): Int
 }
 
 @Dao
