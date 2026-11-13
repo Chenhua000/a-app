@@ -131,8 +131,8 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             _searchState.value = NovelSearchState.Loading
             // 记录进搜索历史（去重、最新在前）
             settingsRepository.recordSearchHistory(keyword)
-            val sourcesCount = repository.observeSources().first().count { it.enabled }.coerceAtMost(20)
-            if (sourcesCount == 0) {
+            val enabledCount = repository.observeSources().first().count { it.enabled }
+            if (enabledCount == 0) {
                 _searchState.value = NovelSearchState.Error("没有启用任何书源，先去「书源管理」导入")
                 return@launch
             }
@@ -148,10 +148,10 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
                 if (result.coverUrl.isBlank()) result.copy(coverUrl = fallbackCover) else result
             }
             _searchState.value = if (patched.isEmpty()) {
+                val searched = enabledCount.coerceAtMost(60)
                 NovelSearchState.Error(
-                    "在 $sourcesCount 个启用书源里没找到完全匹配的。" +
-                    "书名不用太精确——输入部分书名（如「斗破」「红楼」）也能搜到相关书；" +
-                    "也可以到「书源」里多启用几个已验证可用的源再试。"
+                    "暂时没搜到《$keyword》。已启用 $enabledCount 个书源，本次并行检索了其中 $searched 个；" +
+                    "书名可以不用太精确（如「斗破」「红楼」），换个部分书名再试。"
                 )
             } else {
                 NovelSearchState.Success(patched)

@@ -70,8 +70,11 @@ class BookRepository(private val database: AppDatabase) {
 
     /**
      * 在所有启用书源里并发搜索，失败的书源自动跳过。
+     *
+     * 默认取 60 个源（原来是 20，用户反馈「书源一堆却搜不到」——20 个根本覆盖不到）。
+     * 用信号量把并发压到 24，单个源 12s 超时，既铺得开又不会把结果页拖到几十秒。
      */
-    suspend fun search(query: String, sourceLimit: Int = 20): List<BookSearchResult> =
+    suspend fun search(query: String, sourceLimit: Int = 60): List<BookSearchResult> =
         withContext(io) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
@@ -83,29 +86,21 @@ class BookRepository(private val database: AppDatabase) {
             val sources = (if (preferred.isNotEmpty()) preferred else enabledSources).take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
+            val semaphore = Semaphore(24)
             supervisorScope {
                 val tasks = sources.map { source ->
                     async {
-                        // 挂代理或网络慢时单个书源可能需要十几秒，超时只跳过该书源
-                        withTimeoutOrNull(25_000) {
-                            runCatching { searchInSource(source, keyword) }
-                                .onFailure {
-                                    if (it is kotlinx.coroutines.CancellationException) throw it
-                                    android.util.Log.w(
-                                        "BookRepository",
-                                        "书源 ${source.name} 搜索失败：${it.message}"
-                                    )
-                                }
-                                .onSuccess {
-                                    android.util.Log.d(
-                                        "BookRepository",
-                                        "书源 ${source.name} 返回 ${it.size} 条结果"
-                                    )
-                                }
-                                .getOrDefault(emptyList())
-                        } ?: run {
-                            android.util.Log.w("BookRepository", "书源 ${source.name} 搜索超时")
-                            emptyList()
+                        semaphore.acquire()
+                        try {
+                            withTimeoutOrNull(12_000) {
+                                runCatching { searchInSource(source, keyword) }
+                                    .onFailure {
+                                        if (it is kotlinx.coroutines.CancellationException) throw it
+                                    }
+                                    .getOrDefault(emptyList())
+                            } ?: emptyList()
+                        } finally {
+                            semaphore.release()
                         }
                     }
                 }
@@ -514,6 +509,11 @@ class BookRepository(private val database: AppDatabase) {
     /** 批量启用 / 停用：配合书源管理器里的分组筛选使用 */
     suspend fun setSourcesEnabled(ids: List<String>, enabled: Boolean) = withContext(io) {
         ids.chunked(400).forEach { database.bookSourceDao().setEnabled(it, enabled) }
+    }
+
+    /** 当前库里内置笔趣阁书源（id 前缀 `legado_`）的条数，用于校验导入是否完整 */
+    suspend fun countBundledLegadoSources(): Int = withContext(io) {
+        database.bookSourceDao().countByPrefix("legado_", 7)
     }
 
     /**

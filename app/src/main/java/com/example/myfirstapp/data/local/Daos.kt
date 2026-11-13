@@ -172,6 +172,10 @@ interface BookSourceDao {
 
     @Query("SELECT COUNT(*) FROM book_sources")
     suspend fun count(): Int
+
+    /** 统计某个 id 前缀（如内置笔趣阁源 `legado_`）的书源数量，用于校验导入是否完整 */
+    @Query("SELECT COUNT(*) FROM book_sources WHERE substr(id, 1, :len) = :prefix")
+    suspend fun countByPrefix(prefix: String, len: Int): Int
 }
 
 @Dao

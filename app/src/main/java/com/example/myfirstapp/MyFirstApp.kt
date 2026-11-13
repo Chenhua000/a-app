@@ -47,30 +47,47 @@ class MyFirstApp : Application() {
     }
 
     /**
-     * 首次启动把 assets/legado_sources.json 的 1744 条笔趣阁书源写进 Room，
-     * 并 **全部默认启用**（assets 里每条 enabled=true）。用 SharedPreferences 标记只导入一次。
+     * 把 assets/legado_sources.json 的 1744 条笔趣阁书源写进 Room，并 **全部默认启用**。
      *
-     * 老版本（v3.49~v3.51）导入时是「默认停用」，所以额外做一次一次性迁移：
-     * 已存在但停用的 legado 源全部打开，保证老用户升级后也是「全开」。
+     * **自愈导入**：首次启动导入 1744 条要几秒，期间 App 若被系统杀掉就会只导入一部分；
+     * 旧逻辑「导入过就打标记」会导致永久缺源（用户看到的「书源不全」）。
+     * 现在每次启动都用 `countBundledLegadoSources()` 核对条数，**不足就自动重导补齐**，
+     * 补齐后才算完成。条数达标时只做一次廉价 COUNT 查询，不重复读 1.5MB assets。
      */
     private suspend fun importBundledLegadoSourcesOnce() {
         val prefs = getSharedPreferences("novel_import", MODE_PRIVATE)
-        if (!prefs.getBoolean("legado_v1", false)) {
-            val text = runCatching {
-                assets.open("legado_sources.json").bufferedReader().use { it.readText() }
-            }.getOrNull()
-            if (text != null) {
-                val count = runCatching { container.bookRepository.importSources(text) }.getOrDefault(0)
-                if (count > 0) prefs.edit().putBoolean("legado_v1", true).apply()
-            }
+        val repo = container.bookRepository
+
+        // 期望条数：首次从 assets 读出后缓存，避免每次启动都解析 1.5MB
+        var expected = prefs.getInt("legado_expected", 0)
+        if (expected <= 0) {
+            val text = readLegadoAsset() ?: return
+            expected = runCatching { org.json.JSONArray(text).length() }.getOrDefault(0)
+            if (expected <= 0) return
+            prefs.edit().putInt("legado_expected", expected).apply()
         }
-        // 老版本「导入即停用」的存量书源 → 一次性全部启用（成功才打标记，避免每次启动重扫）
+
+        // 自愈：库里条数不足就（重）导入，直到补齐
+        val current = runCatching { repo.countBundledLegadoSources() }.getOrDefault(0)
+        if (current < expected) {
+            val text = readLegadoAsset()
+            if (text != null) {
+                runCatching { repo.importSources(text) }
+            }
+        } else if (!prefs.getBoolean("legado_v1", false)) {
+            prefs.edit().putBoolean("legado_v1", true).apply()
+        }
+
+        // 全部启用（一次性迁移，兼顾老版本「导入即停用」的存量源）
         if (!prefs.getBoolean("legado_enable_all_v1", false)) {
-            val enabled = runCatching { container.bookRepository.enableAllBundledLegadoSources() }
-                .getOrDefault(0)
+            val enabled = runCatching { repo.enableAllBundledLegadoSources() }.getOrDefault(0)
             if (enabled > 0) prefs.edit().putBoolean("legado_enable_all_v1", true).apply()
         }
     }
+
+    private fun readLegadoAsset(): String? = runCatching {
+        assets.open("legado_sources.json").bufferedReader().use { it.readText() }
+    }.getOrNull()
 }
 
 class AppContainer(private val context: android.content.Context) {
