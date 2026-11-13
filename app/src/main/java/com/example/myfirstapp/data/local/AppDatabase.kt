@@ -41,7 +41,7 @@ class Converters {
         TaskEntity::class,
         TaskCompletionEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -65,6 +65,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE ledger_transactions ADD COLUMN category TEXT NOT NULL DEFAULT '其他'")
                 db.execSQL("ALTER TABLE planner_tasks ADD COLUMN hasDate INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE shelf_books ADD COLUMN lastChapterOffset INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** v3.57：书架区分「收藏」与「临时阅读」——临时阅读不进书架列表，只有收藏才显示 */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE shelf_books ADD COLUMN favorited INTEGER NOT NULL DEFAULT 1")
             }
         }
 

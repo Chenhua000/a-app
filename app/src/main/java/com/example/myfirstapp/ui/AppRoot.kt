@@ -263,6 +263,7 @@ fun AppRoot(pendingTarget: String?) {
                         AppTab.NOVEL -> NovelScreen(
                             onOpenSources = { onNavigate(AppRoute.Sources) },
                             onOpenBook = { bookId -> onNavigate(AppRoute.Reader(bookId, -1)) },
+                            onOpenToc = { bookId -> onNavigate(AppRoute.Toc(bookId)) },
                             page = novelPage,
                             onPageChange = { novelPage = it }
                         )

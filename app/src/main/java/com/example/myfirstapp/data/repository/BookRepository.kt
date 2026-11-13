@@ -457,9 +457,18 @@ class BookRepository(private val database: AppDatabase) {
     suspend fun clearOldCache(olderThanMillis: Long = System.currentTimeMillis() - 7 * 24 * 3600_000L) =
         withContext(io) { database.chapterCacheDao().deleteOlderThan(olderThanMillis) }
 
-    suspend fun addToShelf(result: BookSearchResult): Long = withContext(io) {
+    /**
+     * 加入书架（收藏）。已存在则复用并置为已收藏。
+     * favorited=false 时只建一条「临时阅读」记录（书架列表不显示）。
+     */
+    suspend fun addToShelf(result: BookSearchResult, favorited: Boolean = true): Long = withContext(io) {
         val existing = database.shelfBookDao().getByUrl(result.bookUrl)
-        if (existing != null) return@withContext existing.id
+        if (existing != null) {
+            if (favorited && !existing.favorited) {
+                database.shelfBookDao().setFavorited(existing.id, true)
+            }
+            return@withContext existing.id
+        }
         database.shelfBookDao().upsert(
             ShelfBookEntity(
                 title = result.title,
@@ -468,9 +477,24 @@ class BookRepository(private val database: AppDatabase) {
                 summary = result.summary.takeIf { it.isNotBlank() },
                 sourceId = result.sourceId,
                 sourceName = result.sourceName,
-                bookUrl = result.bookUrl
+                bookUrl = result.bookUrl,
+                favorited = favorited
             )
         )
+    }
+
+    /** 「开始阅读 / 查看目录」用：确保有一条可读记录但不进书架（favorited=false，已收藏的不动） */
+    suspend fun ensureReadingBook(result: BookSearchResult): Long =
+        addToShelf(result, favorited = false)
+
+    /** 把某条记录标记为已收藏（进书架） */
+    suspend fun markFavorited(id: Long) = withContext(io) {
+        database.shelfBookDao().setFavorited(id, true)
+    }
+
+    /** 某本书是否已收藏进书架（按 bookUrl 查） */
+    suspend fun isFavorited(bookUrl: String): Boolean = withContext(io) {
+        database.shelfBookDao().getByUrl(bookUrl)?.favorited == true
     }
 
     suspend fun book(id: Long): ShelfBookEntity? = withContext(io) { database.shelfBookDao().getBook(id) }

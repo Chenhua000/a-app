@@ -146,7 +146,10 @@ data class ShelfBookEntity(
     val lastChapterIndex: Int = 0,
     val lastChapterTitle: String? = null,
     val lastReadAtMillis: Long = System.currentTimeMillis(),
-    @androidx.room.ColumnInfo(defaultValue = "0") val lastChapterOffset: Int = 0
+    @androidx.room.ColumnInfo(defaultValue = "0") val lastChapterOffset: Int = 0,
+    // 是否「收藏」进书架。临时阅读（开始阅读/查看目录）建的条目 favorited=false，书架列表不显示；
+    // 只有点「收藏书籍」才置 true。老数据默认 1（视为已收藏）。
+    @androidx.room.ColumnInfo(defaultValue = "1") val favorited: Boolean = true
 )
 
 /** 目录缓存：进去一次就不再重复抓网页 */

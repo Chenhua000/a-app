@@ -180,11 +180,15 @@ interface BookSourceDao {
 
 @Dao
 interface ShelfBookDao {
-    @Query("SELECT * FROM shelf_books ORDER BY lastReadAtMillis DESC")
+    /** 书架只列「已收藏」的（临时阅读条目 favorited=0，不进书架） */
+    @Query("SELECT * FROM shelf_books WHERE favorited = 1 ORDER BY lastReadAtMillis DESC")
     fun observeBooks(): Flow<List<ShelfBookEntity>>
 
     @Query("SELECT * FROM shelf_books WHERE id = :id")
     suspend fun getBook(id: Long): ShelfBookEntity?
+
+    @Query("UPDATE shelf_books SET favorited = :favorited WHERE id = :id")
+    suspend fun setFavorited(id: Long, favorited: Boolean)
 
     @Query("SELECT * FROM shelf_books WHERE bookUrl = :url LIMIT 1")
     suspend fun getByUrl(url: String): ShelfBookEntity?

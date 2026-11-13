@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed class NovelSearchState {
     data object Idle : NovelSearchState()
@@ -204,6 +205,120 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeQuickRead() { _quickReadState.value = QuickReadState.Idle }
+
+    // ─────── 书籍详情页（仿笔趣阁）：解析到真实书源、切换源、开始阅读 / 查看目录 / 收藏 ───────
+    data class DetailState(
+        val title: String = "",
+        val cover: String? = null,
+        val candidates: List<BookSearchResult> = emptyList(),
+        val index: Int = 0,
+        val loading: Boolean = false,
+        val latestChapter: String? = null,
+        val favorited: Boolean = false
+    ) {
+        val current: BookSearchResult? get() = candidates.getOrNull(index)
+    }
+
+    sealed interface DetailNav {
+        data class Reader(val bookId: Long) : DetailNav
+        data class Toc(val bookId: Long) : DetailNav
+    }
+
+    private val _detail = MutableStateFlow(DetailState())
+    val detail: StateFlow<DetailState> = _detail
+    private val _detailNav = MutableStateFlow<DetailNav?>(null)
+    val detailNav: StateFlow<DetailNav?> = _detailNav
+    private var detailJob: Job? = null
+
+    fun consumeDetailNav() { _detailNav.value = null }
+
+    /** 打开详情：按书名在所有源里搜一遍，得到「同一本书在不同源」的候选，供切换 */
+    fun openDetail(title: String, cover: String?) {
+        val kw = title.trim()
+        if (kw.isEmpty()) return
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            _detail.value = DetailState(title = kw, cover = cover, loading = true)
+            val list = runCatching { repository.search(kw) }.getOrDefault(emptyList())
+            val norm = { s: String -> s.replace(Regex("[\\s《》]"), "") }
+            val nkw = norm(kw)
+            val matched = list.filter {
+                val t = norm(it.title)
+                t.isNotEmpty() && (t.contains(nkw) || nkw.contains(t))
+            }.ifEmpty { list }
+            val perSource = matched.distinctBy { it.sourceId }
+            _detail.value = _detail.value.copy(candidates = perSource, index = 0, loading = false)
+            loadLatestFor(perSource.getOrNull(0))
+            perSource.firstOrNull()?.let { c ->
+                val fav = runCatching { repository.isFavorited(c.bookUrl) }.getOrDefault(false)
+                if (_detail.value.current?.bookUrl == c.bookUrl) {
+                    _detail.value = _detail.value.copy(favorited = fav)
+                }
+            }
+        }
+    }
+
+    private fun loadLatestFor(c: BookSearchResult?) {
+        if (c == null) return
+        viewModelScope.launch {
+            val chs = runCatching {
+                withTimeoutOrNull(10_000) { repository.chapters(c.sourceId, c.bookUrl) } ?: emptyList()
+            }.getOrDefault(emptyList())
+            if (_detail.value.current?.bookUrl == c.bookUrl) {
+                _detail.value = _detail.value.copy(latestChapter = chs.lastOrNull()?.title)
+            }
+        }
+    }
+
+    /** 切换到下一个书源（同一本书换源） */
+    fun switchDetailSource() {
+        val s = _detail.value
+        if (s.candidates.size <= 1) return
+        val next = (s.index + 1) % s.candidates.size
+        _detail.value = s.copy(index = next, latestChapter = null, favorited = false)
+        loadLatestFor(s.candidates[next])
+        val c = s.candidates[next]
+        viewModelScope.launch {
+            val fav = runCatching { repository.isFavorited(c.bookUrl) }.getOrDefault(false)
+            if (_detail.value.current?.bookUrl == c.bookUrl) {
+                _detail.value = _detail.value.copy(favorited = fav)
+            }
+        }
+    }
+
+    /** 开始阅读：建临时记录（不进书架）后直接进阅读器 */
+    fun startRead() {
+        val c = _detail.value.current ?: return
+        viewModelScope.launch {
+            val id = runCatching { repository.ensureReadingBook(c) }.getOrDefault(0)
+            if (id > 0) _detailNav.value = DetailNav.Reader(id)
+            else _message.value = "打开失败，稍后再试"
+        }
+    }
+
+    /** 查看目录：同样用临时记录，进目录页 */
+    fun viewDetailToc() {
+        val c = _detail.value.current ?: return
+        viewModelScope.launch {
+            val id = runCatching { repository.ensureReadingBook(c) }.getOrDefault(0)
+            if (id > 0) _detailNav.value = DetailNav.Toc(id)
+            else _message.value = "打开失败，稍后再试"
+        }
+    }
+
+    /** 收藏书籍：真正加入书架 */
+    fun favoriteCurrent() {
+        val c = _detail.value.current ?: return
+        viewModelScope.launch {
+            val id = runCatching { repository.addToShelf(c, favorited = true) }.getOrDefault(0)
+            if (id > 0) {
+                _detail.value = _detail.value.copy(favorited = true)
+                _message.value = "《${c.title}》已加入书架"
+            }
+        }
+    }
+
+    fun closeDetail() { _detail.value = DetailState() }
 
     fun addToShelf(result: BookSearchResult) {
         viewModelScope.launch {

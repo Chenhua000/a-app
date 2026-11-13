@@ -85,6 +85,7 @@ enum class NovelPage { BOOKSTORE, SHELF, SEARCH_HISTORY, SEARCH_RESULT }
 fun NovelScreen(
     onOpenSources: () -> Unit,
     onOpenBook: (Long) -> Unit,
+    onOpenToc: (Long) -> Unit = {},
     page: NovelPage,
     onPageChange: (NovelPage) -> Unit,
     viewModel: NovelViewModel = viewModel()
@@ -102,7 +103,8 @@ fun NovelScreen(
     val bookstore by viewModel.bookstore.collectAsStateWithLifecycle()
     val channel by viewModel.channel.collectAsStateWithLifecycle()
     val quickReadState by viewModel.quickReadState.collectAsStateWithLifecycle()
-    val quickError by viewModel.quickError.collectAsStateWithLifecycle()
+    val detail by viewModel.detail.collectAsStateWithLifecycle()
+    val detailNav by viewModel.detailNav.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
 
@@ -132,12 +134,26 @@ fun NovelScreen(
     }
 
     // 「立即阅读」命中后直接进阅读器（AppRoot 的 onOpenBook 本身就是进阅读器，从最近进度开始）。
-    // 失败不再跳搜索结果页——跟笔趣阁一致：点阅读就直接读，搜不到就在详情页原地提示。
     LaunchedEffect(quickReadState) {
         val s = quickReadState
         if (s is QuickReadState.Ready) {
             onOpenBook(s.shelfId)
             viewModel.consumeQuickRead()
+        }
+    }
+
+    // 详情页「开始阅读 / 查看目录」：分别跳到阅读器 / 目录页
+    LaunchedEffect(detailNav) {
+        when (val nav = detailNav) {
+            is NovelViewModel.DetailNav.Reader -> {
+                onOpenBook(nav.bookId)
+                viewModel.consumeDetailNav()
+            }
+            is NovelViewModel.DetailNav.Toc -> {
+                onOpenToc(nav.bookId)
+                viewModel.consumeDetailNav()
+            }
+            null -> {}
         }
     }
 
@@ -167,14 +183,13 @@ fun NovelScreen(
                     onPageChange(NovelPage.SEARCH_RESULT)
                 },
                 onOpenSources = onOpenSources,
-                onReadNow = { title, cover -> viewModel.quickRead(title, cover) },
-                quickBusy = quickReadState is QuickReadState.Loading,
-                quickError = quickError,
-                onClearQuickError = viewModel::clearQuickError,
-                onManualSearch = { title, cover ->
-                    viewModel.searchWith(title, cover)
-                    onPageChange(NovelPage.SEARCH_RESULT)
-                }
+                detail = detail,
+                onOpenDetail = { title, cover -> viewModel.openDetail(title, cover) },
+                onStartRead = viewModel::startRead,
+                onViewToc = viewModel::viewDetailToc,
+                onFavorite = viewModel::favoriteCurrent,
+                onSwitchSource = viewModel::switchDetailSource,
+                onCloseDetail = viewModel::closeDetail
             )
             NovelPage.SHELF -> ShelfPage(
                 books = shelf,
