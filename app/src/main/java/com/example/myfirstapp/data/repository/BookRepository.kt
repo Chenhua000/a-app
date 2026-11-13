@@ -28,6 +28,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -129,7 +133,7 @@ class BookRepository(private val database: AppDatabase) {
      * 并发跑、**第一个能搜到书的源返回即停**，拿到结果就直接去读——
      * 这样既不用用户先去逐个启用书源，也不会像普通搜索那样把几千个源全跑一遍。
      */
-    suspend fun quickSearch(query: String, sourceLimit: Int = 600): List<BookSearchResult> =
+    suspend fun quickSearch(query: String, sourceLimit: Int = 1200): List<BookSearchResult> =
         withContext(io) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
@@ -137,41 +141,50 @@ class BookRepository(private val database: AppDatabase) {
             var sources = all.filter { it.groupName == "笔趣阁·可用" }
             if (sources.isEmpty()) sources = all.filter { it.enabled }
             if (sources.isEmpty()) sources = all.filter { it.searchUrl.isNotBlank() }
+            // 默认覆盖全部「可用」源（1117 个），不再只取前 600 —— 否则书在后面的源里就永远搜不到
             sources = sources.take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
-            val semaphore = Semaphore(30)
-            val ranked = supervisorScope {
-                val deferreds = sources.map { source ->
-                    async {
+            val semaphore = Semaphore(32)
+            val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
+            // 关键：**不用 supervisorScope**。HttpFetcher 是阻塞 IO，协程取消打断不了正在读的 socket，
+            // supervisorScope 会一直等这些子任务（1117 个源 → 几十秒~几分钟）。这里用独立 scope，
+            // 命中或到 20s 立刻返回，其余请求在后台自行超时收尾，前端「点阅读」不会被拖住。
+            val scope = CoroutineScope(io + SupervisorJob())
+            val firstHit: List<BookSearchResult> = try {
+                sources.forEach { source ->
+                    scope.launch {
                         semaphore.acquire()
                         try {
-                            withTimeoutOrNull(25_000) {
-                                runCatching { searchInSource(source, keyword) }
-                                    .onFailure { if (it is CancellationException) throw it }
-                                    .getOrDefault(emptyList())
-                            } ?: emptyList()
+                            val got = runCatching { searchInSource(source, keyword) }
+                                .onFailure { if (it is CancellationException) throw it }
+                                .getOrDefault(emptyList())
+                            if (got.isNotEmpty()) channel.trySend(got)
                         } finally {
                             semaphore.release()
                         }
                     }
                 }
-                var first: List<BookSearchResult>? = null
-                repeat(deferreds.size) {
-                    // 等下一个完成的源；谁先返回非空结果就立刻采用并取消其余（首个命中即停）
-                    val r = select { deferreds.forEach { d -> d.onAwait { it } } }
-                    if (r.isNotEmpty()) {
-                        first = r
-                        return@supervisorScope r
+                withTimeoutOrNull(20_000) {
+                    var hit: List<BookSearchResult>? = null
+                    while (hit == null) {
+                        val r = channel.receive()
+                        if (r.isNotEmpty()) hit = r
                     }
-                }
-                first ?: emptyList()
+                    hit
+                } ?: emptyList()
+            } finally {
+                scope.cancel()
+                channel.close()
             }
-            ranked
+
+            val cleaned = firstHit
                 .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
                 .distinctBy { it.sourceId + "|" + it.bookUrl }
                 .let { BookMatchRanking.rank(it, keyword) }
                 .let { BookResultFilter.keepRelevant(it, keyword) }
+            // 源既然按书名返回过结果，就算过滤器判「不够像」也别丢——立即阅读优先命中
+            if (cleaned.isEmpty()) firstHit else cleaned
         }
 
     private suspend fun searchInSource(source: BookSourceEntity, keyword: String): List<BookSearchResult> {

@@ -162,28 +162,32 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
     private val _quickReadState = MutableStateFlow<QuickReadState>(QuickReadState.Idle)
     val quickReadState: StateFlow<QuickReadState> = _quickReadState
 
+    /** 立即阅读失败时就地提示（留在详情页，不再跳搜索结果页） */
+    private val _quickError = MutableStateFlow<String?>(null)
+    val quickError: StateFlow<String?> = _quickError
+    fun clearQuickError() { _quickError.value = null }
+
     /**
      * 「立即阅读」：自动从可用书源里匹配这本书并直接打开阅读器，无需用户先去启用书源。
-     * 失败时把错误透传到搜索结果页（而不是静默回到详情页），让用户知道原因。
+     * **跟笔趣阁一致：点阅读就直接读**。失败也不跳搜索页，只在详情页原地提示，用户可重试或手动搜索。
      */
     fun quickRead(title: String, coverUrl: String? = null) {
         val keyword = title.trim()
         if (keyword.isEmpty()) { _message.value = "先输入书名"; return }
         job?.cancel()
         job = viewModelScope.launch {
+            _quickError.value = null
             _quickReadState.value = QuickReadState.Loading
             settingsRepository.recordSearchHistory(keyword)
             val results = runCatching { repository.quickSearch(keyword) }.getOrElse { e ->
                 if (e is CancellationException) throw e
-                val msg = "匹配失败：${e.localizedMessage}"
-                _searchState.value = NovelSearchState.Error(msg)
-                _quickReadState.value = QuickReadState.Error(msg)
+                _quickError.value = "匹配失败：${e.localizedMessage}"
+                _quickReadState.value = QuickReadState.Idle
                 return@launch
             }
             if (results.isEmpty()) {
-                val msg = "暂时没在可用书源里找到《${keyword}》。可以到书源管理多启用几个源再试，或换更精确的书名搜索。"
-                _searchState.value = NovelSearchState.Error(msg)
-                _quickReadState.value = QuickReadState.Error(msg)
+                _quickError.value = "暂时没在可用书源里搜到《${keyword}》，可点「手动搜索」换个书名试试。"
+                _quickReadState.value = QuickReadState.Idle
                 return@launch
             }
             val first = results.first()
@@ -193,9 +197,8 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             val id = repository.addToShelf(patched)
             if (id > 0) _quickReadState.value = QuickReadState.Ready(id)
             else {
-                val msg = "打开失败，稍后再试"
-                _searchState.value = NovelSearchState.Error(msg)
-                _quickReadState.value = QuickReadState.Error(msg)
+                _quickError.value = "打开失败，稍后再试"
+                _quickReadState.value = QuickReadState.Idle
             }
         }
     }

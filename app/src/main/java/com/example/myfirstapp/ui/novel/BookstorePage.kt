@@ -59,7 +59,10 @@ fun BookstorePage(
     onSearch: (String, String?) -> Unit,
     onOpenSources: () -> Unit,
     onReadNow: (String, String?) -> Unit,
-    quickBusy: Boolean = false
+    quickBusy: Boolean = false,
+    quickError: String? = null,
+    onClearQuickError: () -> Unit = {},
+    onManualSearch: (String, String?) -> Unit = { _, _ -> }
 ) {
     var selected by remember { mutableStateOf<StoreCategory?>(null) }
     var selectedBook by remember { mutableStateOf<StoreBook?>(null) }
@@ -70,9 +73,11 @@ fun BookstorePage(
         if (selectedBook != null) {
             BookDetailPage(
                 book = selectedBook!!,
-                onBack = { selectedBook = null },
+                onBack = { selectedBook = null; onClearQuickError() },
                 onReadNow = { onReadNow(selectedBook!!.title, selectedBook!!.cover) },
-                busy = quickBusy
+                onManualSearch = { onManualSearch(selectedBook!!.title, selectedBook!!.cover) },
+                busy = quickBusy,
+                error = quickError
             )
             return
         }
@@ -81,7 +86,7 @@ fun BookstorePage(
         CategoryBooksPage(
             category = selected!!,
             onBack = { selected = null },
-            onOpenBook = { book -> selectedBook = book }
+            onOpenBook = { book -> onClearQuickError(); selectedBook = book }
         )
         return
     }
@@ -178,7 +183,7 @@ fun BookstorePage(
 
         val ranks = current?.ranks?.get(period).orEmpty()
         ranks.take(if (showAllRank) 10 else 6).forEachIndexed { index, rank ->
-            RankRow(index + 1, rank) { book -> selectedBook = book }
+            RankRow(index + 1, rank) { book -> onClearQuickError(); selectedBook = book }
         }
         if (ranks.isEmpty()) {
             Text(
@@ -302,7 +307,9 @@ private fun BookDetailPage(
     book: StoreBook,
     onBack: () -> Unit,
     onReadNow: () -> Unit,
-    busy: Boolean = false
+    onManualSearch: () -> Unit,
+    busy: Boolean = false,
+    error: String? = null
 ) {
     Column(
         modifier = Modifier
@@ -366,10 +373,19 @@ private fun BookDetailPage(
             Text(if (busy) "正在匹配书源…" else "立即阅读")
         }
         Text(
-            text = "自动从可用书源里找这本书并直接打开阅读，无需手动选源。",
+            text = if (busy) "正在从书源里找这本书，稍等就会直接打开阅读…"
+            else "点「立即阅读」直接从可用书源打开，无需手动选源。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (error != null) {
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            TextButton(onClick = onManualSearch) { Text("手动搜索这本书") }
+        }
     }
 }
 
