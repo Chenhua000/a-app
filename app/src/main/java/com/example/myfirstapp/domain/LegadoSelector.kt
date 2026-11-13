@@ -31,8 +31,12 @@ object LegadoSelector {
     /** 一段（@ 分隔的）选择器 */
     internal data class Step(val css: String, val index: IndexSpec?, val exclude: IndexSpec?)
 
-    /** 一条完整规则（不含 || 备用） */
-    internal data class Rule(val steps: List<Step>, val attr: String)
+    /** 一条完整规则（不含 || 备用）。regexes 是 `##正则##替换` 部分，取到值后逐一替换 */
+    internal data class Rule(
+        val steps: List<Step>,
+        val attr: String,
+        val regexes: List<Pair<String, String>> = emptyList()
+    )
 
     private val INDEX_TAIL = Regex("^(.*)\\.(-?\\d+(?::-?\\d+)?)$")
     private val KEYWORD_PREFIX = Regex("^(id|class|tag)\\.(.+)$")
@@ -48,7 +52,12 @@ object LegadoSelector {
             .mapNotNull { parseOne(it) }
     }
 
-    private fun parseOne(part: String): Rule? {
+    private fun parseOne(partRaw: String): Rule? {
+        // Legado 的 `##正则##替换` 写在选择器后面。它必须**先摘出来**，否则会被当成一段 CSS
+        // 塞进步骤里 → jsoup 解析失败 → 整条规则失效（正文源最常见：`id.content@textNodes##请记住本书.*`）。
+        val pieces = partRaw.split("##")
+        val part = pieces[0].trim()
+        val regexes = parseRegexes(pieces.drop(1))
         val segments = part.split("@")
         val last = segments.last().trim().lowercase()
         // 最后一段是属性关键词 → 它是取值方式；否则整段都是选择器链
@@ -56,7 +65,34 @@ object LegadoSelector {
         val selectorParts = if (attr == "text" && last !in ATTRIBUTES) segments else segments.dropLast(1)
         // 允许 steps 为空：像 `@href` 这种规则表示「就取当前元素自己的属性」
         val steps = selectorParts.map { it.trim() }.filter { it.isNotBlank() }.map { parseStep(it) }
-        return Rule(steps, attr)
+        return Rule(steps, attr, regexes)
+    }
+
+    /** 从 `##` 之后的部分解析出 (正则, 替换) 列表；`replace` 缺省为空串（即删除匹配内容） */
+    private fun parseRegexes(rest: List<String>): List<Pair<String, String>> {
+        if (rest.isEmpty()) return emptyList()
+        val out = ArrayList<Pair<String, String>>()
+        var i = 0
+        while (i < rest.size) {
+            val rx = rest[i]
+            val rep = if (i + 1 < rest.size) rest[i + 1] else ""
+            if (rx.isNotBlank()) out += rx to rep
+            i += 2
+        }
+        return out
+    }
+
+    /** 供正文抽取复用的 `##正则##替换`（取第一条备选规则里的）。 */
+    fun regexReplacements(raw: String): List<Pair<String, String>> {
+        val first = raw.split("||").firstOrNull()?.trim() ?: return emptyList()
+        return parseRegexes(first.split("##").drop(1))
+    }
+
+    private fun applyRegexes(text: String, regexes: List<Pair<String, String>>): String {
+        if (regexes.isEmpty()) return text
+        var r = text
+        regexes.forEach { (rx, rep) -> r = runCatching { r.replace(Regex(rx), rep) }.getOrDefault(r) }
+        return r
     }
 
     private fun parseStep(raw: String): Step {
@@ -150,7 +186,7 @@ object LegadoSelector {
             val elements = selectRule(root, rule)
             val attr = rule.attr.takeIf { it != "text" } ?: defaultAttr
             elements.forEach { element ->
-                val text = readValue(element, attr, baseUrl)
+                val text = applyRegexes(readValue(element, attr, baseUrl), rule.regexes)
                 if (text.isNotBlank()) return text
             }
         }
@@ -161,7 +197,7 @@ object LegadoSelector {
     fun values(root: Element, raw: String, baseUrl: String, defaultAttr: String = "text"): List<String> {
         val rule = parse(raw).firstOrNull() ?: return emptyList()
         val attr = rule.attr.takeIf { it != "text" } ?: defaultAttr
-        return selectRule(root, rule).map { readValue(it, attr, baseUrl) }
+        return selectRule(root, rule).map { applyRegexes(readValue(it, attr, baseUrl), rule.regexes) }
     }
 
     private fun collectTextNodes(element: Element, out: MutableList<org.jsoup.nodes.TextNode>) {

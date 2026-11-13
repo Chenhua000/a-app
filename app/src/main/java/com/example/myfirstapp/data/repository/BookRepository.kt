@@ -380,8 +380,9 @@ class BookRepository(private val database: AppDatabase) {
         forceRefresh: Boolean = false
     ): ChapterContent = withContext(io) {
         val cached = database.chapterCacheDao().get(chapter.url)
-        // 旧版本曾把 301 / nginx 错误页当正文缓存过，升级后要让它自动失效重抓
-        if (!forceRefresh && cached != null && !isErrorPageCached(cached.content)) {
+        // 旧版本曾把 301 / nginx 错误页、或抽取失败的空残片（如 `<div id="content_tip"><b>`）
+        // 当正文缓存过；这些都要自动失效重抓，否则修好规则后用户还是看到空白。
+        if (!forceRefresh && cached != null && !isDirtyCachedContent(cached.content)) {
             return@withContext ChapterContent(cached.title, cached.url, cached.content, true)
         }
         // 本地导入的书正文只存在本机，没有可以重抓的网址
@@ -437,14 +438,20 @@ class BookRepository(private val database: AppDatabase) {
         return cached.any { it.url.substringBefore('#').trimEnd('/') == self }
     }
 
-    /** 识别被误缓存的错误页（正常正文不会这么短，也不会出现 nginx 的字样） */
-    private fun isErrorPageCached(content: String): Boolean {
-        if (content.length > 4000) return false
+    /** 识别被误缓存的错误页 / 抽取失败的空残片（正常正文不会这么短，也不会出现 nginx 的字样） */
+    private fun isDirtyCachedContent(content: String): Boolean {
         val plain = content.lowercase()
-        return listOf(
-            "moved permanently", "nginx", "access denied", "forbidden",
-            "bad gateway", "service unavailable"
-        ).any { plain.contains(it) }
+        if (content.length <= 4000 && listOf(
+                "moved permanently", "nginx", "access denied", "forbidden",
+                "bad gateway", "service unavailable"
+            ).any { plain.contains(it) }
+        ) return true
+        // 可见文字几乎没有、总长又很短：基本是抽取失败留下的 HTML 残片（`<div id="content_tip"><b>`）
+        val visible = content
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&nbsp;", " ")
+            .replace(Regex("\\s+"), "")
+        return visible.length < 24 && content.length < 220
     }
 
     suspend fun clearOldCache(olderThanMillis: Long = System.currentTimeMillis() - 7 * 24 * 3600_000L) =

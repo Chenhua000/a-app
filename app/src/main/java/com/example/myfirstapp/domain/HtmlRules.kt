@@ -181,10 +181,10 @@ object HtmlRules {
         else LegadoSelector.select(doc, rule.selector).firstOrNull()
         // 规则没配 / 已失效：改用通用兜底，别让「能搜到却读不了」
         if (container == null) {
-            return if (anchorId.isNullOrBlank()) fallbackContent(doc, rule) else ""
+            return if (anchorId.isNullOrBlank()) applySelectorRegex(fallbackContent(doc, rule), rule.selector) else ""
         }
 
-        if (anchorId.isNullOrBlank()) return cleanContainer(container, rule)
+        if (anchorId.isNullOrBlank()) return applySelectorRegex(cleanContainer(container, rule), rule.selector)
 
         val anchor = runCatching { doc.getElementById(anchorId) }.getOrNull()
             ?: runCatching { doc.selectFirst("a[name=$anchorId]") }.getOrNull()
@@ -203,7 +203,16 @@ object HtmlRules {
         if (section === anchor) {
             section.parent()?.takeIf { it !== container }?.let { section = it }
         }
-        return cleanContainer(section, rule)
+        return applySelectorRegex(cleanContainer(section, rule), rule.selector)
+    }
+
+    /** 正文规则尾部可能带 `##正则##替换`（Legado 语法），抽完正文再按它清洗一遍 */
+    private fun applySelectorRegex(text: String, selector: String): String {
+        val rs = LegadoSelector.regexReplacements(selector)
+        if (rs.isEmpty()) return text
+        var r = text
+        rs.forEach { (rx, rep) -> r = runCatching { r.replace(Regex(rx), rep) }.getOrDefault(r) }
+        return r
     }
 
     private fun countAnchors(element: Element, anchors: Set<String>): Int {

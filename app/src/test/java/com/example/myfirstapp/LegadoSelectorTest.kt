@@ -112,6 +112,30 @@ class LegadoSelectorTest {
     }
 
     @Test
+    fun contentRuleWithRegexSuffixAndNestedTipWorks() {
+        // 真实场景：<div id="content"> 里先有个 <div id="content_tip"> 提示，再跟正文；
+        // 正文规则写成 `id.content@textNodes##正则`（Legado 的 ## 替换语法）。
+        // 旧实现不认 ##，会把「正则」当成一段 CSS → 整条规则失效 → 正文空白。
+        val html = """
+            <div class="content">
+              <div id="content" class="showtxt">
+                <div id="content_tip"><b>最新网址：www.4020xs.com</b></div>
+                “嘶这究竟是怎么回事？！”李火旺死死咬着牙。这里是一段足够长的真实正文，用来确认抽取正确无误。
+              </div>
+            </div>
+        """.trimIndent()
+        val root = doc(html)
+        val rule = "id.content@textNodes##最新网址：.*"
+        assertEquals("带 ## 的规则应选中 #content（而不是 #content_tip）", 1, HtmlRules.selectList(root, rule).size)
+        val text = HtmlRules.extractContent(
+            root,
+            com.example.myfirstapp.domain.ContentRule(selector = rule)
+        )
+        assertTrue("应抽到真实正文", text.contains("李火旺"))
+        assertTrue("提示行应被 ## 正则清掉", !text.contains("最新网址"))
+    }
+
+    @Test
     fun contentExtractionUsesLegadoSelectors() {
         val html = """
             <html><body>
