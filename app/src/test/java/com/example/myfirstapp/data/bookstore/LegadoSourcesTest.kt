@@ -3,7 +3,6 @@ package com.example.myfirstapp.data.bookstore
 import com.example.myfirstapp.domain.BookRulesCodec
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,7 +10,7 @@ import java.io.File
 
 /**
  * 回归测试：内置笔趣阁书源包必须能被 BookRepository.importSources 完整导入。
- * 校验条目数、稳定 id、必填字段、默认停用、规则可被 BookRulesCodec 解析。
+ * 校验条目数、稳定 id、必填字段、默认启用、规则可被 BookRulesCodec 解析。
  */
 class LegadoSourcesTest {
 
@@ -34,7 +33,7 @@ class LegadoSourcesTest {
             assertTrue("id 重复：$id", ids.add(id))
             assertTrue("$id 缺名称", item.optString("name").isNotBlank())
             assertTrue("$id 缺搜索地址", item.optString("searchUrl").isNotBlank())
-            assertFalse("$id 应默认停用", item.optBoolean("enabled", true))
+            assertTrue("$id 应默认启用", item.optBoolean("enabled", false))
             assertTrue("$id 缺分组", item.optString("group").isNotBlank())
 
             val rules = BookRulesCodec.fromJson(item.optJSONObject("rules")?.toString().orEmpty())

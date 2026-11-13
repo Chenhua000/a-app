@@ -75,9 +75,12 @@ class BookRepository(private val database: AppDatabase) {
         withContext(io) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
-            val sources = database.bookSourceDao().listSources()
-                .filter { it.enabled }
-                .take(sourceLimit)
+            // 书源「全部默认启用」后启用集会有一千多个，直接 take 会因内置源 sortOrder 更小而
+            // 把内置源顶在最前、笔趣阁源永远轮不到。这里优先取「笔趣阁·可用」分组（纯 CSS、命中率高），
+            // 没有该分组时才退回全部启用源。
+            val enabledSources = database.bookSourceDao().listSources().filter { it.enabled }
+            val preferred = enabledSources.filter { it.groupName == "笔趣阁·可用" }
+            val sources = (if (preferred.isNotEmpty()) preferred else enabledSources).take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
             supervisorScope {
@@ -511,6 +514,21 @@ class BookRepository(private val database: AppDatabase) {
     /** 批量启用 / 停用：配合书源管理器里的分组筛选使用 */
     suspend fun setSourcesEnabled(ids: List<String>, enabled: Boolean) = withContext(io) {
         ids.chunked(400).forEach { database.bookSourceDao().setEnabled(it, enabled) }
+    }
+
+    /**
+     * 一次性把内置的笔趣阁书源（id 前缀 `legado_`）全部启用。
+     * 用于把老版本「导入时默认停用」的存量书源迁移成「默认启用」，返回启用数量。
+     */
+    suspend fun enableAllBundledLegadoSources(): Int = withContext(io) {
+        val ids = database.bookSourceDao().listSources()
+            .asSequence()
+            .filter { it.id.startsWith("legado_") }
+            .map { it.id }
+            .toList()
+        if (ids.isEmpty()) return@withContext 0
+        ids.chunked(400).forEach { database.bookSourceDao().setEnabled(it, true) }
+        ids.size
     }
 
     suspend fun deleteSources(ids: List<String>) = withContext(io) {

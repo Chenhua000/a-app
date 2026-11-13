@@ -48,17 +48,28 @@ class MyFirstApp : Application() {
 
     /**
      * 首次启动把 assets/legado_sources.json 的 1744 条笔趣阁书源写进 Room，
-     * 全部默认停用（一次启用太多源会明显拖慢搜索）；用 SharedPreferences 标记只导入一次，
-     * 之后用户在书源管理里按分组批量启用或跑自检。
+     * 并 **全部默认启用**（assets 里每条 enabled=true）。用 SharedPreferences 标记只导入一次。
+     *
+     * 老版本（v3.49~v3.51）导入时是「默认停用」，所以额外做一次一次性迁移：
+     * 已存在但停用的 legado 源全部打开，保证老用户升级后也是「全开」。
      */
     private suspend fun importBundledLegadoSourcesOnce() {
         val prefs = getSharedPreferences("novel_import", MODE_PRIVATE)
-        if (prefs.getBoolean("legado_v1", false)) return
-        val text = runCatching {
-            assets.open("legado_sources.json").bufferedReader().use { it.readText() }
-        }.getOrNull() ?: return
-        val count = runCatching { container.bookRepository.importSources(text) }.getOrDefault(0)
-        if (count > 0) prefs.edit().putBoolean("legado_v1", true).apply()
+        if (!prefs.getBoolean("legado_v1", false)) {
+            val text = runCatching {
+                assets.open("legado_sources.json").bufferedReader().use { it.readText() }
+            }.getOrNull()
+            if (text != null) {
+                val count = runCatching { container.bookRepository.importSources(text) }.getOrDefault(0)
+                if (count > 0) prefs.edit().putBoolean("legado_v1", true).apply()
+            }
+        }
+        // 老版本「导入即停用」的存量书源 → 一次性全部启用（成功才打标记，避免每次启动重扫）
+        if (!prefs.getBoolean("legado_enable_all_v1", false)) {
+            val enabled = runCatching { container.bookRepository.enableAllBundledLegadoSources() }
+                .getOrDefault(0)
+            if (enabled > 0) prefs.edit().putBoolean("legado_enable_all_v1", true).apply()
+        }
     }
 }
 
