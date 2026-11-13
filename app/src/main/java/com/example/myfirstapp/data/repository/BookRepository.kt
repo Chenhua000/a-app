@@ -49,27 +49,16 @@ class BookRepository(private val database: AppDatabase) {
     fun observeShelf(): Flow<List<ShelfBookEntity>> = database.shelfBookDao().observeBooks()
 
     suspend fun ensureDefaultSources() = withContext(io) {
-        // 内置书源的规则由 App 维护：缺失就补，规则有更新就刷新（保留用户自己开关的状态）
-        val existing = database.bookSourceDao().listSources().associateBy { it.id }
-        val toWrite = mutableListOf<BookSourceEntity>()
-        var rulesChanged = false
-        DefaultBookSources.sources().forEach { def ->
-            val old = existing[def.id]
-            when {
-                old == null -> toWrite.add(def)
-                old.rules != def.rules || old.searchUrl != def.searchUrl || old.baseUrl != def.baseUrl -> {
-                    toWrite.add(def.copy(enabled = old.enabled, sortOrder = old.sortOrder))
-                    rulesChanged = true
-                }
-            }
-        }
-        if (toWrite.isNotEmpty()) {
-            database.bookSourceDao().upsertAll(toWrite)
-        }
-        // 规则升级后旧目录不可信（例如古腾堡以前整本只解析出 1 章），清掉让它们重新抓
-        if (rulesChanged) {
-            database.chapterIndexDao().clearAll()
-        }
+        // v3.58 起不再内置古腾堡 / 维基文库这 3 条；老用户库里残留的这 3 条一并清掉。
+        database.bookSourceDao().deleteByIds(LEGACY_BUILT_IN_IDS)
+        // 用户要求「书源全部改为内置」：把剩下的源（1744 条笔趣阁 + 少量推荐包）统一标记为内置。
+        // 只改标记、不删数据，避免弄坏书架里已在用的书。
+        database.bookSourceDao().markAllBuiltIn()
+    }
+
+    private companion object {
+        /** 旧版本内置、v3.58 起要移除的 3 条硬编码书源 */
+        val LEGACY_BUILT_IN_IDS = listOf("gutenberg", "wikisource-cn", "wikisource-tw")
     }
 
     /**
@@ -78,7 +67,11 @@ class BookRepository(private val database: AppDatabase) {
      * 默认取 60 个源（原来是 20，用户反馈「书源一堆却搜不到」——20 个根本覆盖不到）。
      * 用信号量把并发压到 24，单个源 12s 超时，既铺得开又不会把结果页拖到几十秒。
      */
-    suspend fun search(query: String, sourceLimit: Int = 60): List<BookSearchResult> =
+    suspend fun search(
+        query: String,
+        sourceLimit: Int = 60,
+        onPartial: ((List<BookSearchResult>) -> Unit)? = null
+    ): List<BookSearchResult> =
         withContext(io) {
             val keyword = query.trim()
             if (keyword.isEmpty()) return@withContext emptyList()
@@ -90,12 +83,23 @@ class BookRepository(private val database: AppDatabase) {
             val sources = (if (preferred.isNotEmpty()) preferred else enabledSources).take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
-            // 同 quickSearch：不用 supervisorScope 干等全部源（阻塞 IO 取消不掉），
-            // 边收集边返回，最多等 15s 就把已经拿到的结果给出去，搜索页不会转圈转一分钟。
+            fun clean(list: List<BookSearchResult>): List<BookSearchResult> = list
+                // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
+                .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
+                .distinctBy { it.dedupeKey }
+                // 同一书源多个导航项指向同一个 /rank/ 也要去重，否则 LazyColumn key 重复会闪退
+                .distinctBy { it.sourceId + "|" + it.bookUrl }
+                .let { BookMatchRanking.rank(it, keyword) }
+                .let { BookResultFilter.keepRelevant(it, keyword) }
+
+            // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
+            // 第一条结果出来几百毫秒就能显示，整体最多 8s 就收尾，搜索页不再「转圈半天」。
             val semaphore = Semaphore(24)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
-            val collected: List<BookSearchResult> = try {
+            val pending = java.util.concurrent.atomic.AtomicInteger(sources.size)
+            val acc = mutableListOf<BookSearchResult>()
+            try {
                 sources.forEach { source ->
                     scope.launch {
                         semaphore.acquire()
@@ -106,30 +110,32 @@ class BookRepository(private val database: AppDatabase) {
                             if (got.isNotEmpty()) channel.trySend(got)
                         } finally {
                             semaphore.release()
+                            if (pending.decrementAndGet() == 0) channel.close()
                         }
                     }
                 }
-                val acc = mutableListOf<BookSearchResult>()
-                withTimeoutOrNull(15_000) {
-                    while (true) acc.addAll(channel.receive())
+                var lastEmit = 0L
+                withTimeoutOrNull(8_000) {
+                    while (true) {
+                        // 全部源都结束（channel 被关闭）也会跳出，不必等满 8s
+                        val res = channel.receiveCatching()
+                        if (res.isClosed) break
+                        val r = res.getOrNull() ?: continue
+                        acc.addAll(r)
+                        val now = System.currentTimeMillis()
+                        if (onPartial != null && now - lastEmit >= 250) {
+                            lastEmit = now
+                            onPartial(clean(acc))
+                        }
+                    }
                 }
-                acc
             } finally {
                 scope.cancel()
                 channel.close()
             }
-
-            collected
-                // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
-                .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
-                .distinctBy { it.dedupeKey }
-                // 只按 title|author 去重挡不住「同一书源多个导航项指向同一个 /rank/」，
-                // 必须再按 源+URL 去重，否则 LazyColumn 的 key 重复会直接闪退
-                .distinctBy { it.sourceId + "|" + it.bookUrl }
-                // 各源结果是「一段一段」拼起来的，按和关键词的匹配度整体重排
-                .let { BookMatchRanking.rank(it, keyword) }
-                // 书源规则失效时返回的是整页无关内容，只留和关键词沾边的结果
-                .let { BookResultFilter.keepRelevant(it, keyword) }
+            val finalResult = clean(acc)
+            onPartial?.invoke(finalResult)
+            finalResult
         }
 
     /**
@@ -173,7 +179,7 @@ class BookRepository(private val database: AppDatabase) {
                         }
                     }
                 }
-                withTimeoutOrNull(20_000) {
+                withTimeoutOrNull(12_000) {
                     var hit: List<BookSearchResult>? = null
                     while (hit == null) {
                         val r = channel.receive()
@@ -594,7 +600,8 @@ class BookRepository(private val database: AppDatabase) {
     }
 
     suspend fun resetDefaultSources() = withContext(io) {
-        database.bookSourceDao().upsertAll(DefaultBookSources.sources())
+        // 内置书源现在就是 APK 里的 1744 条（MyFirstApp 首次启动导入），这里只需清掉旧的 3 条
+        database.bookSourceDao().deleteByIds(LEGACY_BUILT_IN_IDS)
     }
 
     /**
@@ -602,7 +609,7 @@ class BookRepository(private val database: AppDatabase) {
      * 1. 单个对象：{ name, baseUrl, searchUrl, charset, rules:{...} }
      * 2. 数组（可以一次导入几十上百个）
      */
-    suspend fun importSources(text: String): Int = withContext(io) {
+    suspend fun importSources(text: String, builtIn: Boolean = false): Int = withContext(io) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return@withContext 0
         var imported = 0
@@ -610,11 +617,11 @@ class BookRepository(private val database: AppDatabase) {
         if (array != null) {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                if (importOne(item)) imported++
+                if (importOne(item, builtIn)) imported++
             }
         } else {
             val single = runCatching { JSONObject(trimmed) }.getOrNull() ?: return@withContext 0
-            if (importOne(single)) imported = 1
+            if (importOne(single, builtIn)) imported = 1
         }
         imported
     }
@@ -625,7 +632,7 @@ class BookRepository(private val database: AppDatabase) {
         importSources(text)
     }
 
-    private suspend fun importOne(json: JSONObject): Boolean {
+    private suspend fun importOne(json: JSONObject, builtIn: Boolean = false): Boolean {
         val name = json.optString("name").trim()
         val searchUrl = json.optString("searchUrl").trim()
         val baseUrl = json.optString("baseUrl").trim().ifEmpty { hostOf(searchUrl) }
@@ -640,7 +647,7 @@ class BookRepository(private val database: AppDatabase) {
             charset = json.optString("charset").takeIf { it.isNotBlank() } ?: "utf-8",
             rules = BookRulesCodec.toJson(parsedRules),
             enabled = json.optBoolean("enabled", true),
-            builtIn = false,
+            builtIn = builtIn,
             sortOrder = json.optInt("sortOrder", 100),
             groupName = json.optString("group").trim()
         )
@@ -683,7 +690,7 @@ class BookRepository(private val database: AppDatabase) {
                     old != null -> item.put("enabled", old.enabled)
                     !enabled && !item.has("enabled") -> item.put("enabled", false)
                 }
-                if (importOne(item)) imported++
+                if (importOne(item, builtIn = true)) imported++
             }
             imported
         }

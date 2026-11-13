@@ -72,7 +72,7 @@ class MyFirstApp : Application() {
         if (current < expected) {
             val text = readLegadoAsset()
             if (text != null) {
-                runCatching { repo.importSources(text) }
+                runCatching { repo.importSources(text, builtIn = true) }
             }
         } else if (!prefs.getBoolean("legado_v1", false)) {
             prefs.edit().putBoolean("legado_v1", true).apply()
@@ -81,11 +81,12 @@ class MyFirstApp : Application() {
         // 规则/搜索地址修正后的强制刷新：v3.55 起修复了原转换里的 {{{key}}} 三花括号、
         // 相对地址没拼 baseUrl、|char=gbk 选项没剥离等问题（这些导致「一本都搜不到」）。
         // 条数没变（仍 1744），单靠上面的 count 自愈不会触发重导，所以用数据版本号强制 upsert 一次。
-        val dataVer = 2
+        // v3.58：把内置 asset 里的 1744 条标记为 builtIn=true（真正「内置书源」，与笔趣阁一致）
+        val dataVer = 3
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {
-                val n = runCatching { repo.importSources(text) }.getOrDefault(0)
+                val n = runCatching { repo.importSources(text, builtIn = true) }.getOrDefault(0)
                 if (n > 0) prefs.edit().putInt("legado_data_ver", dataVer).apply()
             }
         }

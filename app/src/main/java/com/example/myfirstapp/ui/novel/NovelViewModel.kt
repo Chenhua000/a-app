@@ -137,17 +137,24 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
                 _searchState.value = NovelSearchState.Error("没有启用任何书源，先去「书源管理」导入")
                 return@launch
             }
-            val results = runCatching { repository.search(keyword) }
-                .getOrElse { error ->
-                    if (error is CancellationException) throw error
-                    _searchState.value = NovelSearchState.Error("搜索失败：${error.localizedMessage}")
-                    return@launch
-                }
-            currentCoroutineContext().ensureActive()
             // 书库点进来的条目自带封面；书源规则没给封面时补上，避免结果页 / 书架 / 目录页缺图
-            val patched = if (fallbackCover.isNullOrBlank()) results else results.map { result ->
-                if (result.coverUrl.isBlank()) result.copy(coverUrl = fallbackCover) else result
+            fun patch(list: List<BookSearchResult>): List<BookSearchResult> =
+                if (fallbackCover.isNullOrBlank()) list else list.map { result ->
+                    if (result.coverUrl.isBlank()) result.copy(coverUrl = fallbackCover) else result
+                }
+            // 边搜边出：每收到一批结果就先显示，不再等所有源都超时
+            val results = runCatching {
+                repository.search(keyword) { partial ->
+                    val p = patch(partial)
+                    if (p.isNotEmpty()) _searchState.value = NovelSearchState.Success(p)
+                }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                _searchState.value = NovelSearchState.Error("搜索失败：${error.localizedMessage}")
+                return@launch
             }
+            currentCoroutineContext().ensureActive()
+            val patched = patch(results)
             _searchState.value = if (patched.isEmpty()) {
                 val searched = enabledCount.coerceAtMost(60)
                 NovelSearchState.Error(

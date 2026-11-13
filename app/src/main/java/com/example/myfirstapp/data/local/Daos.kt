@@ -176,6 +176,10 @@ interface BookSourceDao {
     /** 统计某个 id 前缀（如内置笔趣阁源 `legado_`）的书源数量，用于校验导入是否完整 */
     @Query("SELECT COUNT(*) FROM book_sources WHERE substr(id, 1, :len) = :prefix")
     suspend fun countByPrefix(prefix: String, len: Int): Int
+
+    /** 把所有书源标记为「内置」（用户要求：全部书源统一为内置，不再区分外置导入） */
+    @Query("UPDATE book_sources SET builtIn = 1")
+    suspend fun markAllBuiltIn()
 }
 
 @Dao
