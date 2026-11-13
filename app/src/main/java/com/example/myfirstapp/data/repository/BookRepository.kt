@@ -24,7 +24,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Semaphore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -118,6 +120,60 @@ class BookRepository(private val database: AppDatabase) {
                     // 书源规则失效时返回的是整页无关内容，只留和关键词沾边的结果
                     .let { BookResultFilter.keepRelevant(it, keyword) }
             }
+        }
+
+    /**
+     * 「立即阅读」专用搜索：不依赖用户是否手动启用书源。
+     *
+     * 笔趣阁能做到「点开介绍页就直接读」，是因为它的书源默认就是开着的、且搜到即用。
+     * 尘剑默认把 1744 个源全停用（避免拖慢普通搜索），所以这里单独走一条路径：
+     * 直接从「笔趣阁·可用」分组里取源（没有就退回启用源 / 任何有搜索规则的源），
+     * 并发跑、**第一个能搜到书的源返回即停**，拿到结果就直接去读——
+     * 这样既不用用户先去逐个启用书源，也不会像普通搜索那样把几千个源全跑一遍。
+     */
+    suspend fun quickSearch(query: String, sourceLimit: Int = 600): List<BookSearchResult> =
+        withContext(io) {
+            val keyword = query.trim()
+            if (keyword.isEmpty()) return@withContext emptyList()
+            val all = database.bookSourceDao().listSources()
+            var sources = all.filter { it.groupName == "笔趣阁·可用" }
+            if (sources.isEmpty()) sources = all.filter { it.enabled }
+            if (sources.isEmpty()) sources = all.filter { it.searchUrl.isNotBlank() }
+            sources = sources.take(sourceLimit)
+            if (sources.isEmpty()) return@withContext emptyList()
+
+            val semaphore = Semaphore(30)
+            val ranked = supervisorScope {
+                val deferreds = sources.map { source ->
+                    async {
+                        semaphore.acquire()
+                        try {
+                            withTimeoutOrNull(25_000) {
+                                runCatching { searchInSource(source, keyword) }
+                                    .onFailure { if (it is CancellationException) throw it }
+                                    .getOrDefault(emptyList())
+                            } ?: emptyList()
+                        } finally {
+                            semaphore.release()
+                        }
+                    }
+                }
+                var first: List<BookSearchResult>? = null
+                repeat(deferreds.size) {
+                    // 等下一个完成的源；谁先返回非空结果就立刻采用并取消其余（首个命中即停）
+                    val r = select { deferreds.forEach { d -> d.onAwait { it } } }
+                    if (r.isNotEmpty()) {
+                        first = r
+                        return@supervisorScope r
+                    }
+                }
+                first ?: emptyList()
+            }
+            ranked
+                .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
+                .distinctBy { it.sourceId + "|" + it.bookUrl }
+                .let { BookMatchRanking.rank(it, keyword) }
+                .let { BookResultFilter.keepRelevant(it, keyword) }
         }
 
     private suspend fun searchInSource(source: BookSourceEntity, keyword: String): List<BookSearchResult> {

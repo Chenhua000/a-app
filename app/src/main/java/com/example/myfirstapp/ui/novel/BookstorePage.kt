@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +57,9 @@ fun BookstorePage(
     onChannelChange: (String) -> Unit,
     onSearchHistory: () -> Unit,
     onSearch: (String, String?) -> Unit,
-    onOpenSources: () -> Unit
+    onOpenSources: () -> Unit,
+    onReadNow: (String, String?) -> Unit,
+    quickBusy: Boolean = false
 ) {
     var selected by remember { mutableStateOf<StoreCategory?>(null) }
     var selectedBook by remember { mutableStateOf<StoreBook?>(null) }
@@ -64,14 +67,15 @@ fun BookstorePage(
     var showAllRank by remember { mutableStateOf(false) }
     val current = if (channel == "female") data?.female else data?.male
 
-    if (selectedBook != null) {
-        BookDetailPage(
-            book = selectedBook!!,
-            onBack = { selectedBook = null },
-            onRead = { onSearch(selectedBook!!.title, selectedBook!!.cover) }
-        )
-        return
-    }
+        if (selectedBook != null) {
+            BookDetailPage(
+                book = selectedBook!!,
+                onBack = { selectedBook = null },
+                onReadNow = { onReadNow(selectedBook!!.title, selectedBook!!.cover) },
+                busy = quickBusy
+            )
+            return
+        }
 
     if (selected != null) {
         CategoryBooksPage(
@@ -297,7 +301,8 @@ private fun CategoryCard(
 private fun BookDetailPage(
     book: StoreBook,
     onBack: () -> Unit,
-    onRead: () -> Unit
+    onReadNow: () -> Unit,
+    busy: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -349,11 +354,19 @@ private fun BookDetailPage(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Button(onClick = onRead, modifier = Modifier.fillMaxWidth()) {
-            Text("搜索并阅读")
+        Button(onClick = onReadNow, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(if (busy) "正在匹配书源…" else "立即阅读")
         }
         Text(
-            text = "将从已启用的书源里搜索这本书；封面与简介来自书库内置数据。",
+            text = "自动从可用书源里找这本书并直接打开阅读，无需手动选源。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

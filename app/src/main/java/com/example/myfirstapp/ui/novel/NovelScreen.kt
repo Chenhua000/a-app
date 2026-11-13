@@ -101,6 +101,7 @@ fun NovelScreen(
     val shelfSort by viewModel.shelfSort.collectAsStateWithLifecycle()
     val bookstore by viewModel.bookstore.collectAsStateWithLifecycle()
     val channel by viewModel.channel.collectAsStateWithLifecycle()
+    val quickReadState by viewModel.quickReadState.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
 
@@ -129,6 +130,22 @@ fun NovelScreen(
         }
     }
 
+    // 「立即阅读」命中后直接进阅读器（AppRoot 的 onOpenBook 本身就是进阅读器，从最近进度开始）；
+    // 失败时切到搜索结果页给出明确错误，而不是静默回到详情页
+    LaunchedEffect(quickReadState) {
+        when (val s = quickReadState) {
+            is QuickReadState.Ready -> {
+                onOpenBook(s.shelfId)
+                viewModel.consumeQuickRead()
+            }
+            is QuickReadState.Error -> {
+                onPageChange(NovelPage.SEARCH_RESULT)
+                viewModel.consumeQuickRead()
+            }
+            else -> {}
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         if (page == NovelPage.BOOKSTORE || page == NovelPage.SHELF) {
             TabRow(selectedTabIndex = if (page == NovelPage.BOOKSTORE) 0 else 1) {
@@ -154,7 +171,9 @@ fun NovelScreen(
                     viewModel.searchWith(title, cover)
                     onPageChange(NovelPage.SEARCH_RESULT)
                 },
-                onOpenSources = onOpenSources
+                onOpenSources = onOpenSources,
+                onReadNow = { title, cover -> viewModel.quickRead(title, cover) },
+                quickBusy = quickReadState is QuickReadState.Loading
             )
             NovelPage.SHELF -> ShelfPage(
                 books = shelf,

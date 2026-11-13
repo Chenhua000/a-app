@@ -31,6 +31,14 @@ sealed class NovelSearchState {
     data class Error(val message: String) : NovelSearchState()
 }
 
+/** 「立即阅读」的状态：不依赖用户是否启用书源，自动从可用分组匹配后直接进阅读器 */
+sealed interface QuickReadState {
+    data object Idle : QuickReadState
+    data object Loading : QuickReadState
+    data class Ready(val shelfId: Long) : QuickReadState
+    data class Error(val message: String) : QuickReadState
+}
+
 class NovelViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as MyFirstApp).container.bookRepository
     private val settingsRepository = (application as MyFirstApp).container.settingsRepository
@@ -150,6 +158,49 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    private val _quickReadState = MutableStateFlow<QuickReadState>(QuickReadState.Idle)
+    val quickReadState: StateFlow<QuickReadState> = _quickReadState
+
+    /**
+     * 「立即阅读」：自动从可用书源里匹配这本书并直接打开阅读器，无需用户先去启用书源。
+     * 失败时把错误透传到搜索结果页（而不是静默回到详情页），让用户知道原因。
+     */
+    fun quickRead(title: String, coverUrl: String? = null) {
+        val keyword = title.trim()
+        if (keyword.isEmpty()) { _message.value = "先输入书名"; return }
+        job?.cancel()
+        job = viewModelScope.launch {
+            _quickReadState.value = QuickReadState.Loading
+            settingsRepository.recordSearchHistory(keyword)
+            val results = runCatching { repository.quickSearch(keyword) }.getOrElse { e ->
+                if (e is CancellationException) throw e
+                val msg = "匹配失败：${e.localizedMessage}"
+                _searchState.value = NovelSearchState.Error(msg)
+                _quickReadState.value = QuickReadState.Error(msg)
+                return@launch
+            }
+            if (results.isEmpty()) {
+                val msg = "暂时没在可用书源里找到《${keyword}》。可以到书源管理多启用几个源再试，或换更精确的书名搜索。"
+                _searchState.value = NovelSearchState.Error(msg)
+                _quickReadState.value = QuickReadState.Error(msg)
+                return@launch
+            }
+            val first = results.first()
+            val patched = if (coverUrl.isNullOrBlank()) first else first.copy(
+                coverUrl = if (first.coverUrl.isBlank()) coverUrl else first.coverUrl
+            )
+            val id = repository.addToShelf(patched)
+            if (id > 0) _quickReadState.value = QuickReadState.Ready(id)
+            else {
+                val msg = "打开失败，稍后再试"
+                _searchState.value = NovelSearchState.Error(msg)
+                _quickReadState.value = QuickReadState.Error(msg)
+            }
+        }
+    }
+
+    fun consumeQuickRead() { _quickReadState.value = QuickReadState.Idle }
 
     fun addToShelf(result: BookSearchResult) {
         viewModelScope.launch {
