@@ -2,6 +2,8 @@ package com.example.myfirstapp.ui.novel
 
 import android.app.Application
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -282,13 +284,11 @@ fun SourceManagerScreen(
 
     val enabledCount = sources.count { it.enabled }
 
-    // 整页一起滚：小屏上概览卡片 + 分组筛选能占掉大半屏，如果列表单独占一块，
-    // 留给列表的高度会是 0（用户一个书源都看不见）。
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
+    // 概览 / 筛选 / 导入等作为 header item，书源列表用 items 虚拟化。
+    // 内置 1805 个书源，若用 Column 一次性铺开会直接卡死主线程。
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            Column(modifier = Modifier.fillMaxWidth()) {
         // 概览
         Card(
             modifier = Modifier
@@ -598,30 +598,26 @@ fun SourceManagerScreen(
         message?.let {
             AppInlineMessage(text = it)
         }
-
-        if (visible.isEmpty()) {
-            EmptyState(
-                icon = Icons.Default.ContentPaste,
-                title = if (sources.isEmpty()) "还没有书源" else "没有匹配的书源",
-                subtitle = if (sources.isEmpty()) {
-                    "点「导入内置书源包」加载推荐书源，或粘贴自己的书源 JSON"
-                } else {
-                    "换个关键词，或把分组切回「全部」"
-                }
-            )
-            return
+            }
         }
 
-        // 页面整体已经可滚动，这里就不能再放 LazyColumn（同向嵌套滚动会崩），
-        // 直接用 Column 铺开（书源数量最多几百条，这个页面完全可以承受）。
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            visible.forEach { source ->
-                androidx.compose.runtime.key(source.id) {
+        if (visible.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = Icons.Default.ContentPaste,
+                    title = if (sources.isEmpty()) "还没有书源" else "没有匹配的书源",
+                    subtitle = if (sources.isEmpty()) {
+                        "点「导入内置书源包」加载推荐书源，或粘贴自己的书源 JSON"
+                    } else {
+                        "换个关键词，或把分组切回「全部」"
+                    }
+                )
+            }
+        } else {
+            items(visible, key = { it.id }) { source ->
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
                     SourceRow(
                         source = source,
                         checked = source.id in selected.value,
@@ -638,7 +634,7 @@ fun SourceManagerScreen(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(20.dp))
+            item { Spacer(modifier = Modifier.height(20.dp)) }
         }
     }
 }

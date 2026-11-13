@@ -20,7 +20,9 @@ data class StoreRank(
     val title: String,
     val author: String,
     val tag: String,
-    val desc: String
+    val desc: String,
+    val cover: String = "",
+    val score: String = ""
 )
 
 data class StoreChannel(
@@ -95,7 +97,9 @@ object BookstoreCatalog {
                             title = b.optString("title"),
                             author = b.optString("author"),
                             tag = b.optString("tag"),
-                            desc = b.optString("desc")
+                            desc = b.optString("desc"),
+                            cover = b.optString("cover"),
+                            score = b.optString("score")
                         )
                     }
                 }

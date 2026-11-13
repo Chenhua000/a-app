@@ -3,7 +3,6 @@ package com.example.myfirstapp.ui.novel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,10 +20,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,13 +45,9 @@ import com.example.myfirstapp.data.bookstore.BookstoreData
 import com.example.myfirstapp.data.bookstore.StoreBook
 import com.example.myfirstapp.data.bookstore.StoreCategory
 import com.example.myfirstapp.data.bookstore.StoreRank
+import com.example.myfirstapp.ui.components.BookCover
 
-private val CoverColors = listOf(
-    Color(0xFF4C8BF5), Color(0xFF35BE9B), Color(0xFF9B86F0),
-    Color(0xFFF5796F), Color(0xFFF5A44C), Color(0xFF42AFCB)
-)
-
-/** 参考「笔趣阁」书库首页：搜索 + 男女频道 + 分类卡 + 排行榜 */
+/** 参考「笔趣阁」书库首页：搜索 + 男女频道 + 分类卡 + 排行榜（封面走真实网络图） */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BookstorePage(
@@ -61,18 +55,29 @@ fun BookstorePage(
     channel: String,
     onChannelChange: (String) -> Unit,
     onSearchHistory: () -> Unit,
-    onSearch: (String) -> Unit,
+    onSearch: (String, String?) -> Unit,
     onOpenSources: () -> Unit
 ) {
     var selected by remember { mutableStateOf<StoreCategory?>(null) }
+    var selectedBook by remember { mutableStateOf<StoreBook?>(null) }
     var period by remember { mutableStateOf("day") }
+    var showAllRank by remember { mutableStateOf(false) }
     val current = if (channel == "female") data?.female else data?.male
+
+    if (selectedBook != null) {
+        BookDetailPage(
+            book = selectedBook!!,
+            onBack = { selectedBook = null },
+            onRead = { onSearch(selectedBook!!.title, selectedBook!!.cover) }
+        )
+        return
+    }
 
     if (selected != null) {
         CategoryBooksPage(
             category = selected!!,
             onBack = { selected = null },
-            onSearch = onSearch
+            onOpenBook = { book -> selectedBook = book }
         )
         return
     }
@@ -92,19 +97,19 @@ fun BookstorePage(
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = "书源已内置 · 一键直达",
+                text = "书架共享一键直达",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        // 搜索框 + 男 / 女频道
+        // 搜索框 + 男 / 女频道（文字切换，贴近参考 App）
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(52.dp)
-                    .clip(RoundedCornerShape(26.dp))
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable(role = Role.Button) { onSearchHistory() }
                     .padding(horizontal = 16.dp),
@@ -123,11 +128,9 @@ fun BookstorePage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = {
-                onChannelChange(if (channel == "male") "female" else "male")
-            }) {
-                Text(if (channel == "male") "男生" else "女生")
+            Row {
+                ChannelTab("男生", channel == "male") { onChannelChange("male") }
+                ChannelTab("女生", channel == "female") { onChannelChange("female") }
             }
         }
 
@@ -162,22 +165,27 @@ fun BookstorePage(
             listOf("day" to "日榜", "week" to "周榜", "month" to "月榜").forEach { (key, label) ->
                 FilterChip(
                     selected = period == key,
-                    onClick = { period = key },
+                    onClick = { period = key; showAllRank = false },
                     label = { Text(label) }
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
             }
         }
 
-        current?.ranks?.get(period).orEmpty().take(6).forEachIndexed { index, rank ->
-            RankRow(index + 1, rank, onSearch)
+        val ranks = current?.ranks?.get(period).orEmpty()
+        ranks.take(if (showAllRank) 10 else 6).forEachIndexed { index, rank ->
+            RankRow(index + 1, rank) { book -> selectedBook = book }
         }
-        if (current?.ranks?.get(period).isNullOrEmpty()) {
+        if (ranks.isEmpty()) {
             Text(
                 text = "暂无榜单数据",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        } else if (ranks.size > 6) {
+            TextButton(onClick = { showAllRank = !showAllRank }) {
+                Text(if (showAllRank) "收起" else "查看更多")
+            }
         }
 
         // 大家都在搜（放在分类与榜单之后，避免挤占首屏）
@@ -191,7 +199,7 @@ fun BookstorePage(
                 current.hot.take(6).forEach { word ->
                     FilterChip(
                         selected = false,
-                        onClick = { onSearch(word) },
+                        onClick = { onSearch(word, null) },
                         label = { Text(word, maxLines = 1) }
                     )
                 }
@@ -219,6 +227,19 @@ fun BookstorePage(
             }
         }
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun ChannelTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -257,41 +278,98 @@ private fun CategoryCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row {
-                category.books.take(2).forEachIndexed { index, book ->
-                    MiniCover(book.title, index)
-                    Spacer(Modifier.width(4.dp))
+            // 真实封面：加载失败时 BookCover 自动回退到书名首字色块
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                category.books.take(2).forEach { book ->
+                    BookCover(
+                        title = book.title,
+                        coverUrl = book.cover,
+                        modifier = Modifier.width(27.dp)
+                    )
                 }
             }
         }
     }
 }
 
+/** 点书先进详情页：大封面 + 书名 / 作者 / 简介，再决定要不要搜书源 */
 @Composable
-private fun MiniCover(title: String, index: Int) {
-    Box(
+private fun BookDetailPage(
+    book: StoreBook,
+    onBack: () -> Unit,
+    onRead: () -> Unit
+) {
+    Column(
         modifier = Modifier
-            .size(30.dp, 40.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(CoverColors[index % CoverColors.size]),
-        contentAlignment = Alignment.Center
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回书库")
+            }
+            Text(
+                text = "书籍详情",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Row {
+            BookCover(
+                title = book.title,
+                coverUrl = book.cover,
+                modifier = Modifier.width(112.dp)
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = book.author.ifBlank { "佚名" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (book.intro.isNotBlank()) {
+            Text(
+                text = "简介",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = book.intro,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Button(onClick = onRead, modifier = Modifier.fillMaxWidth()) {
+            Text("搜索并阅读")
+        }
         Text(
-            text = title.take(1).ifBlank { "书" },
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White
+            text = "将从已启用的书源里搜索这本书；封面与简介来自书库内置数据。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
 @Composable
-private fun RankRow(index: Int, rank: StoreRank, onSearch: (String) -> Unit) {
+private fun RankRow(index: Int, rank: StoreRank, onOpen: (StoreBook) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .clickable(role = Role.Button) { onSearch(rank.title) }
-            .padding(vertical = 8.dp, horizontal = 4.dp),
+            .clickable(role = Role.Button) {
+                onOpen(StoreBook(rank.title, rank.author, rank.cover, rank.desc))
+            }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -300,8 +378,14 @@ private fun RankRow(index: Int, rank: StoreRank, onSearch: (String) -> Unit) {
             fontWeight = FontWeight.Bold,
             color = if (index <= 3) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(28.dp)
+            modifier = Modifier.width(24.dp)
         )
+        BookCover(
+            title = rank.title,
+            coverUrl = rank.cover,
+            modifier = Modifier.width(34.dp)
+        )
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 text = rank.title,
@@ -316,15 +400,23 @@ private fun RankRow(index: Int, rank: StoreRank, onSearch: (String) -> Unit) {
                 maxLines = 1
             )
         }
+        if (rank.score.isNotBlank()) {
+            Text(
+                text = rank.score,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
-/** 点分类卡后进入的书单，点书名直接用现有书源搜索 */
+/** 点分类卡后进入的书单，点书名先进详情页看封面与简介 */
 @Composable
 private fun CategoryBooksPage(
     category: StoreCategory,
     onBack: () -> Unit,
-    onSearch: (String) -> Unit
+    onOpenBook: (StoreBook) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -348,22 +440,26 @@ private fun CategoryBooksPage(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        category.books.forEach { book -> BookRow(book, onSearch) }
+        category.books.forEach { book -> BookRow(book, onOpenBook) }
     }
 }
 
 @Composable
-private fun BookRow(book: StoreBook, onSearch: (String) -> Unit) {
+private fun BookRow(book: StoreBook, onOpen: (StoreBook) -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button) { onSearch(book.title) },
+            .clickable(role = Role.Button) { onOpen(book) },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Row(Modifier.padding(12.dp)) {
-            MiniCover(book.title, book.title.hashCode().let { kotlin.math.abs(it) % CoverColors.size })
+            BookCover(
+                title = book.title,
+                coverUrl = book.cover,
+                modifier = Modifier.width(52.dp)
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(

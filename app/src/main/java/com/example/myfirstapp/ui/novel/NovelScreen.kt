@@ -150,8 +150,8 @@ fun NovelScreen(
                 channel = channel,
                 onChannelChange = viewModel::setChannel,
                 onSearchHistory = { onPageChange(NovelPage.SEARCH_HISTORY) },
-                onSearch = { title ->
-                    viewModel.searchWith(title)
+                onSearch = { title, cover ->
+                    viewModel.searchWith(title, cover)
                     onPageChange(NovelPage.SEARCH_RESULT)
                 },
                 onOpenSources = onOpenSources

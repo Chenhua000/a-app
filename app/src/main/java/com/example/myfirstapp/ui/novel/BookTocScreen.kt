@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myfirstapp.MyFirstApp
 import com.example.myfirstapp.data.local.ShelfBookEntity
 import com.example.myfirstapp.domain.BookChapter
+import com.example.myfirstapp.ui.components.BookCover
 import com.example.myfirstapp.ui.components.EmptyState
 import com.example.myfirstapp.ui.theme.minTouchTarget
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -156,32 +159,42 @@ fun BookTocScreen(
                 shape = MaterialTheme.shapes.medium,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = current.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                Row(modifier = Modifier.padding(14.dp)) {
+                    BookCover(
+                        title = current.title,
+                        coverUrl = current.coverUrl,
+                        modifier = Modifier.width(64.dp)
                     )
-                    Text(
-                        text = "来源：${current.sourceName} · 共 ${chapters?.size ?: 0} 章" +
-                            if (current.lastChapterIndex > 0) " · 读到第 ${current.lastChapterIndex + 1} 章" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = { onOpenReader(current.lastChapterIndex) },
-                            modifier = Modifier.weight(1f)
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = current.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "来源：${current.sourceName} · 共 ${chapters?.size ?: 0} 章" +
+                                if (current.lastChapterIndex > 0) " · 读到第 ${current.lastChapterIndex + 1} 章" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "继续阅读")
-                            Text(if (current.lastChapterIndex > 0) "继续阅读" else "开始阅读")
-                        }
-                        OutlinedButton(onClick = { viewModel.reload(force = true) }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "重新抓取目录")
+                            Button(
+                                onClick = { onOpenReader(current.lastChapterIndex) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "继续阅读")
+                                Text(if (current.lastChapterIndex > 0) "继续阅读" else "开始阅读")
+                            }
+                            OutlinedButton(onClick = { viewModel.reload(force = true) }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "重新抓取目录")
+                            }
                         }
                     }
                 }

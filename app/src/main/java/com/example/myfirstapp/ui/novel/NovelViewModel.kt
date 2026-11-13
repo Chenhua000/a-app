@@ -106,13 +106,13 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
         _query.value = text
     }
 
-    /** 书库页点书名 / 榜单 / 热词：直接带关键词搜索 */
-    fun searchWith(keyword: String) {
+    /** 书库页点书名 / 榜单 / 热词：带关键词搜索；书库自带封面时回填到搜索结果 */
+    fun searchWith(keyword: String, coverUrl: String? = null) {
         _query.value = keyword.trim()
-        search()
+        search(fallbackCover = coverUrl)
     }
 
-    fun search() {
+    fun search(fallbackCover: String? = null) {
         val keyword = query.value.trim()
         if (keyword.isEmpty()) {
             _message.value = "先输入书名"
@@ -135,14 +135,18 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
             currentCoroutineContext().ensureActive()
-            _searchState.value = if (results.isEmpty()) {
+            // 书库点进来的条目自带封面；书源规则没给封面时补上，避免结果页 / 书架 / 目录页缺图
+            val patched = if (fallbackCover.isNullOrBlank()) results else results.map { result ->
+                if (result.coverUrl.isBlank()) result.copy(coverUrl = fallbackCover) else result
+            }
+            _searchState.value = if (patched.isEmpty()) {
                 NovelSearchState.Error(
                     "在 $sourcesCount 个启用书源里没找到完全匹配的。" +
                     "书名不用太精确——输入部分书名（如「斗破」「红楼」）也能搜到相关书；" +
                     "也可以到「书源」里多启用几个已验证可用的源再试。"
                 )
             } else {
-                NovelSearchState.Success(results)
+                NovelSearchState.Success(patched)
             }
         }
     }
