@@ -13,7 +13,7 @@
 | 课表 | `ui/schedule/` | 周课表网格、课程颜色、节次设置 |
 | 任务栏 | `ui/task/`、`ui/todo/` | 待办清单、月历视图、任务状态 |
 | 记账 | `ui/ledger/` | 记一笔、收支统计、分类图表、长按编辑/删除 |
-| 小说 | `ui/novel/` | 书源搜索、书架、目录缓存、翻页阅读器 |
+| 小说 | `ui/novel/` | 书库首页（分类卡 / 排行榜 / 男女频道）、书源搜索、书架筛选排序、目录缓存、翻页阅读器 |
 | 灵感 | `ui/idea/` | 便签瀑布流、颜色标记、自动保存 |
 | 软链接 | `ui/shortcuts/` | 自定义图标，一键启动手机里的第三方 App |
 | 浏览器 | `ui/browser/` | 20 个搜索引擎、内嵌 WebView、主页快捷入口 |
@@ -65,11 +65,15 @@ app/src/main/java/com/example/myfirstapp/
 │   ├── theme/          # 颜色、排版、尺寸令牌
 │   ├── navigation/     # 底部 Tab 与模块顺序
 │   └── AppRoot.kt      # 全局壳：顶栏 / 抽屉 / 底部导航
-├── data/               # Room、DataStore、网络抓取、内置仓库目录
+├── data/               # Room、DataStore、书库数据(bookstore/)、网络抓取、内置仓库目录
 ├── domain/             # 书源规则、结果清洗、金额解析等纯逻辑
 ├── reminder/           # 闹钟与提醒协调
 └── MyFirstApp.kt       # Application 初始化
 app/src/test/           # 本地单元测试
+app/src/main/assets/
+├── book_sources.json   # 推荐书源包
+├── bookstore_data.json # 书库分类 / 榜单 / 热词数据
+└── legado_sources.json # 1744 条笔趣阁书源（首次启动自动导入，默认停用）
 gradle/                 # version catalog + wrapper
 tools/                  # 书源转换辅助脚本
 ```
@@ -91,6 +95,13 @@ tools/                  # 书源转换辅助脚本
 
 `BundledSourcesLiveTest.builtInSourcesCanSearch` 依赖外网 gutenberg.org，离线环境会失败，属于既有的环境性失败，不是回归。其余为纯逻辑本地测试。
 
+## 小说书源
+
+- 首次启动会从 `assets/legado_sources.json` 自动导入 **1744 条书源**，全部**默认停用**；在「小说 → 书源管理」按分组批量启用或跑自检。
+- 分组按可用性标记：`笔趣阁·可用`（1117）、`JS规则`（481）、`POST搜索`（121）、`需登录`（10）、`不完整`（15）。本项目规则引擎只跑 CSS 选择器与正则，**刻意不执行网页 JS**，后四类大概率搜不出结果。
+- 书源来自 Legado（开源阅读）系的两代格式，已转换为本项目 `BookRules` 结构；`LegadoSourcesTest` 校验全量导入的字段与规则可解析性。
+- 书库首页的分类卡、榜单、热词是静态内置数据，点书名会走现有书源搜索流程；只作展示，不托管任何第三方内容。
+
 ## 版本与发布
 
 每个版本递增 `app/build.gradle.kts` 里的 `versionCode` / `versionName`；debug APK 打成 ZIP 后单独分发，不进入本仓库。近期节点：
@@ -99,6 +110,7 @@ tools/                  # 书源转换辅助脚本
 - v3.46 电子书分类重新开放
 - v3.47 批量新增 7 个网址
 - v3.48 新增「游戏娱乐」模块，收录 2 个站点
+- v3.49 小说模块复刻书库首页、内置 1744 条书源，并新增「网盘资源」「论坛社区」两个仓库分类
 
 ## 不包含的内容
 
