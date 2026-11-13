@@ -63,7 +63,7 @@ class BookRepository(private val database: AppDatabase) {
      */
     suspend fun search(
         query: String,
-        sourceLimit: Int = 200,
+        sourceLimit: Int = 1000,
         onPartial: ((List<BookSearchResult>) -> Unit)? = null
     ): List<BookSearchResult> =
         withContext(io) {
@@ -90,7 +90,7 @@ class BookRepository(private val database: AppDatabase) {
 
             // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
             // 第一条结果出来几百毫秒就能显示，整体最多 8s 就收尾，搜索页不再「转圈半天」。
-            val semaphore = Semaphore(24)
+            val semaphore = Semaphore(32)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
             val pending = java.util.concurrent.atomic.AtomicInteger(sources.size)
@@ -111,9 +111,9 @@ class BookRepository(private val database: AppDatabase) {
                     }
                 }
                 var lastEmit = 0L
-                withTimeoutOrNull(8_000) {
+                withTimeoutOrNull(20_000) {
                     while (true) {
-                        // 全部源都结束（channel 被关闭）也会跳出，不必等满 8s
+                        // 全部源都结束（channel 被关闭）也会跳出，不必等满 20s
                         val res = channel.receiveCatching()
                         if (res.isClosed) break
                         val r = res.getOrNull() ?: continue
@@ -200,33 +200,79 @@ class BookRepository(private val database: AppDatabase) {
         }
 
     private suspend fun searchInSource(source: BookSourceEntity, keyword: String): List<BookSearchResult> {
-        val rules = BookRulesCodec.fromJson(source.rules) ?: return emptyList()
-        if (rules.search.list.isBlank()) return emptyList()
+        if (source.searchUrl.isBlank()) return emptyList()
+        val rules = BookRulesCodec.fromJson(source.rules)
         val encoded = URLEncoder.encode(keyword, source.charset)
         val html = fetchSearchHtml(source, keyword, encoded)
         val doc = HtmlRules.parse(html, source.baseUrl)
-        val items = HtmlRules.selectList(doc, rules.search.list)
+
         val results = mutableListOf<BookSearchResult>()
-        items.forEach { element ->
-            val title = HtmlRules.firstText(element, rules.search.name, source.baseUrl).trim()
-            if (title.isEmpty()) return@forEach
-            val bookUrl = HtmlRules.firstText(element, rules.search.url, source.baseUrl)
-            if (bookUrl.isEmpty()) return@forEach
-            if (BookResultFilter.isNavigation(title, bookUrl)) return@forEach
-            results.add(
+        if (rules != null && rules.search.list.isNotBlank()) {
+            HtmlRules.selectList(doc, rules.search.list).forEach { element ->
+                val title = HtmlRules.firstText(element, rules.search.name, source.baseUrl).trim()
+                if (title.isEmpty()) return@forEach
+                val bookUrl = HtmlRules.firstText(element, rules.search.url, source.baseUrl)
+                if (bookUrl.isEmpty()) return@forEach
+                if (BookResultFilter.isNavigation(title, bookUrl)) return@forEach
+                results.add(
+                    BookSearchResult(
+                        sourceId = source.id,
+                        sourceName = source.name,
+                        title = title,
+                        author = HtmlRules.firstText(element, rules.search.author, source.baseUrl),
+                        coverUrl = HtmlRules.firstText(element, rules.search.cover, source.baseUrl),
+                        summary = HtmlRules.firstText(element, rules.search.summary, source.baseUrl)
+                            .take(120),
+                        bookUrl = bookUrl
+                    )
+                )
+            }
+        }
+        // 规则陈旧/缺失导致解析不出时：直接在结果页抓「文字含关键词的链接」当结果。
+        // 网上这些 2023 年的转换规则大量已失效，但页面本身还正常，靠这一层兜底能救回来。
+        if (results.isNotEmpty()) return results
+        return genericSearchFallback(doc, source, keyword)
+    }
+
+    /** 通用搜索兜底：不依赖书源选择器，直接把页面上「文字含关键词」的链接当搜索结果 */
+    private fun genericSearchFallback(
+        doc: org.jsoup.nodes.Document,
+        source: BookSourceEntity,
+        keyword: String
+    ): List<BookSearchResult> {
+        val kw = keyword.trim()
+        if (kw.length < 2) return emptyList()
+        val out = ArrayList<BookSearchResult>()
+        val seen = HashSet<String>()
+        // 明显不是书的链接（新闻/动画/下载页等）直接过滤，减少噪音
+        val noise = listOf(
+            "动画", "开播", "B站", "视频", "漫画", "新闻", "资讯", "排行", "推荐",
+            "下载", "txt", "最新章节", "首页", "登录", "注册", "章节列表"
+        )
+        runCatching { doc.select("a[href]") }.getOrNull()?.forEach { a ->
+            if (out.size >= 20) return@forEach
+            val text = a.text().trim()
+            if (text.length !in 2..32) return@forEach
+            if (!text.contains(kw)) return@forEach
+            if (noise.any { text.contains(it, ignoreCase = true) }) return@forEach
+            val href = a.attr("abs:href").ifBlank { HtmlRules.resolveUrl(a.attr("href"), source.baseUrl) }
+            if (!href.startsWith("http", ignoreCase = true)) return@forEach
+            val low = href.lowercase()
+            if (low.contains("/search") || low.contains("search.") || low.contains("javascript")) return@forEach
+            if (!seen.add(href)) return@forEach
+            out.add(
                 BookSearchResult(
                     sourceId = source.id,
                     sourceName = source.name,
-                    title = title,
-                    author = HtmlRules.firstText(element, rules.search.author, source.baseUrl),
-                    coverUrl = HtmlRules.firstText(element, rules.search.cover, source.baseUrl),
-                    summary = HtmlRules.firstText(element, rules.search.summary, source.baseUrl)
-                        .take(120),
-                    bookUrl = bookUrl
+                    title = text,
+                    author = "",
+                    coverUrl = "",
+                    summary = "",
+                    bookUrl = href
                 )
             )
         }
-        return results
+        return out
     }
 
     /**
