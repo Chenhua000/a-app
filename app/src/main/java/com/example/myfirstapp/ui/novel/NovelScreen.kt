@@ -41,6 +41,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,6 +67,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myfirstapp.data.local.ShelfBookEntity
 import com.example.myfirstapp.domain.BookSearchResult
+import com.example.myfirstapp.domain.ShelfFilter
+import com.example.myfirstapp.domain.ShelfSort
+import com.example.myfirstapp.domain.filterShelfBooks
 import com.example.myfirstapp.ui.components.AppInlineMessage
 import com.example.myfirstapp.ui.components.AppLoading
 import com.example.myfirstapp.ui.components.BookCover
@@ -72,8 +77,8 @@ import com.example.myfirstapp.ui.components.EmptyState
 import com.example.myfirstapp.ui.theme.minTouchTarget
 import kotlinx.coroutines.delay
 
-/** 小说页面的三种视图状态（提升到 AppRoot 持有，避免打开书后被移出组合树导致状态丢失） */
-enum class NovelPage { SHELF, SEARCH_HISTORY, SEARCH_RESULT }
+/** 小说页面的视图状态（提升到 AppRoot 持有，避免打开书后被移出组合树导致状态丢失） */
+enum class NovelPage { BOOKSTORE, SHELF, SEARCH_HISTORY, SEARCH_RESULT }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -91,6 +96,11 @@ fun NovelScreen(
     val sources by viewModel.sources.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val importing by viewModel.importing.collectAsStateWithLifecycle()
+    val shelfQuery by viewModel.shelfQuery.collectAsStateWithLifecycle()
+    val shelfFilter by viewModel.shelfFilter.collectAsStateWithLifecycle()
+    val shelfSort by viewModel.shelfSort.collectAsStateWithLifecycle()
+    val bookstore by viewModel.bookstore.collectAsStateWithLifecycle()
+    val channel by viewModel.channel.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
 
@@ -120,9 +130,38 @@ fun NovelScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (page == NovelPage.BOOKSTORE || page == NovelPage.SHELF) {
+            TabRow(selectedTabIndex = if (page == NovelPage.BOOKSTORE) 0 else 1) {
+                Tab(
+                    selected = page == NovelPage.BOOKSTORE,
+                    onClick = { onPageChange(NovelPage.BOOKSTORE) },
+                    text = { Text("书库") }
+                )
+                Tab(
+                    selected = page == NovelPage.SHELF,
+                    onClick = { onPageChange(NovelPage.SHELF) },
+                    text = { Text("书架") }
+                )
+            }
+        }
         when (page) {
+            NovelPage.BOOKSTORE -> BookstorePage(
+                data = bookstore,
+                channel = channel,
+                onChannelChange = viewModel::setChannel,
+                onSearchHistory = { onPageChange(NovelPage.SEARCH_HISTORY) },
+                onSearch = { title ->
+                    viewModel.searchWith(title)
+                    onPageChange(NovelPage.SEARCH_RESULT)
+                },
+                onOpenSources = onOpenSources
+            )
             NovelPage.SHELF -> ShelfPage(
                 books = shelf,
+                shelfQuery = shelfQuery, filter = shelfFilter, sort = shelfSort,
+                onQueryChange = viewModel::setShelfQuery,
+                onFilterChange = viewModel::setShelfFilter,
+                onSortChange = viewModel::setShelfSort,
                 importing = importing,
                 message = message,
                 onSearchClick = { onPageChange(NovelPage.SEARCH_HISTORY) },
@@ -163,6 +202,8 @@ fun NovelScreen(
 @Composable
 private fun ShelfPage(
     books: List<ShelfBookEntity>,
+    shelfQuery: String, filter: ShelfFilter, sort: ShelfSort,
+    onQueryChange: (String) -> Unit, onFilterChange: (ShelfFilter) -> Unit, onSortChange: (ShelfSort) -> Unit,
     importing: Boolean,
     message: String?,
     onSearchClick: () -> Unit,
@@ -171,6 +212,7 @@ private fun ShelfPage(
     onRemove: (ShelfBookEntity) -> Unit
 ) {
     var pendingRemove by remember { mutableStateOf<ShelfBookEntity?>(null) }
+    val shown = remember(books, shelfQuery, filter, sort) { filterShelfBooks(books, shelfQuery, filter, sort) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部通栏搜索框：点击进入搜索历史页
@@ -196,7 +238,7 @@ private fun ShelfPage(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "搜索书名或作者",
+                    text = "在线搜索书名或作者",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -211,7 +253,7 @@ private fun ShelfPage(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "书架 · ${books.size}",
+                text = "书架 · ${shown.size}/${books.size}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
@@ -247,9 +289,21 @@ private fun ShelfPage(
             }
         }
 
-        message?.let {
-            AppInlineMessage(text = it)
+        if (books.isNotEmpty()) {
+            OutlinedTextField(value = shelfQuery, onValueChange = onQueryChange,
+                placeholder = { Text("在书架中查找书名或作者") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                trailingIcon = { if (shelfQuery.isNotEmpty()) TextButton(onClick = { onQueryChange("") }) { Text("清空") } })
+            androidx.compose.foundation.lazy.LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(ShelfFilter.entries) { option ->
+                    androidx.compose.material3.FilterChip(selected = filter == option,
+                        onClick = { onFilterChange(option) }, label = { Text(option.label) })
+                }
+                item { TextButton(onClick = { onSortChange(if (sort == ShelfSort.RECENT) ShelfSort.TITLE else ShelfSort.RECENT) }) { Text(sort.label) } }
+            }
         }
+        message?.let { AppInlineMessage(text = it) }
 
         if (books.isEmpty()) {
             EmptyState(
@@ -260,13 +314,16 @@ private fun ShelfPage(
                     FilledTonalButton(onClick = onSearchClick) { Text("去搜书") }
                 }
             )
+        } else if (shown.isEmpty()) {
+            EmptyState(icon = Icons.Default.Search, title = "没有匹配的书籍", subtitle = "试试其他关键词，或切回全部书籍",
+                action = { TextButton(onClick = { onQueryChange(""); onFilterChange(ShelfFilter.ALL) }) { Text("清除筛选") } })
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(books, key = { it.id }) { book ->
+                items(shown, key = { it.id }) { book ->
                     ShelfBookRow(
                         book = book,
                         onOpen = { onOpenBook(book.id) },
@@ -284,7 +341,9 @@ private fun ShelfPage(
             onDismissRequest = { pendingRemove = null },
             title = { Text("移出书架") },
             text = {
-                Text("${book.title}\n移出后阅读记录会一起清掉，之后可以重新搜索加入。")
+                Text("${book.title}\n" + if (book.bookUrl.startsWith("local://"))
+                    "本地正文和阅读记录会一起删除，再次阅读需要重新导入原文件。"
+                    else "移出后阅读记录会一起清掉，之后可以重新搜索加入。")
             },
             confirmButton = {
                 TextButton(

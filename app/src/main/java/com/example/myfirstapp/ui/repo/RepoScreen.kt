@@ -49,12 +49,14 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
@@ -127,8 +129,10 @@ private fun categoryIcon(c: RepoCategory): ImageVector = when (c) {
     RepoCategory.STUDY -> Icons.Default.School
     RepoCategory.BOOKS -> Icons.AutoMirrored.Filled.MenuBook
     RepoCategory.BLOG -> Icons.Default.Forum
+    RepoCategory.FORUM -> Icons.Default.Groups
     RepoCategory.DEV -> Icons.Default.Code
     RepoCategory.SOFTWARE -> Icons.Default.Apps
+    RepoCategory.NETDISK -> Icons.Default.Cloud
     RepoCategory.LIFE -> Icons.Default.Favorite
     RepoCategory.MY_APK -> Icons.Default.Android
 }
@@ -266,7 +270,7 @@ fun RepoScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { viewModel.setQuery(it) },
-                    placeholder = { Text("搜索仓库里的网址", maxLines = 1) },
+                    placeholder = { Text("搜索全部网址", maxLines = 1) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
@@ -285,6 +289,11 @@ fun RepoScreen(
                 }
             }
 
+            Text(
+                text = if (query.isBlank()) category.label else "搜索结果",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.primary)
             if (category == RepoCategory.MY_APK && query.isBlank()) {
                 ApkPanel(
                     apks = apks,
@@ -371,9 +380,19 @@ private fun SiteGrid(
         RepoGridBuilder.build(sites, category, query, favoriteIds, recentIds)
     }
 
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    LaunchedEffect(category, query) { gridState.scrollToItem(0) }
+    if (rows.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(if (query.isBlank()) "这个分类还没有网址，点 + 添加" else "没有找到相关网址，试试其他关键词",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     LazyVerticalGrid(
+        state = gridState,
         // 只显示名称的小格子：每格约 72dp，常规屏 3~4 列，卡片高度约 68dp
-        columns = GridCells.Adaptive(minSize = 72.dp),
+        columns = GridCells.Adaptive(minSize = 88.dp),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = AppDimens.Space3, end = AppDimens.Space3,
@@ -385,6 +404,7 @@ private fun SiteGrid(
         gridItems(
             items = rows,
             key = { it.key },
+            contentType = { if (it.isHeader) "header" else if (it.isPlaceholder) "empty" else "site" },
             span = { row ->
                 if (row.isHeader) GridItemSpan(maxLineSpan) else GridItemSpan(1)
             }

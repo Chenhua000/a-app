@@ -32,10 +32,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +52,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myfirstapp.data.local.TransactionEntity
 import com.example.myfirstapp.domain.MoneyFormatter
+import com.example.myfirstapp.domain.filterLedgerEntries
+import com.example.myfirstapp.domain.Statistics
 import com.example.myfirstapp.domain.TransactionType
 import com.example.myfirstapp.ui.components.AppInlineMessage
 import com.example.myfirstapp.ui.components.EmptyState
@@ -69,176 +73,122 @@ fun StatsScreen(
     val range by viewModel.range.collectAsStateWithLifecycle()
     val month by viewModel.month.collectAsStateWithLifecycle()
     val zone = ZoneId.systemDefault()
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedType by rememberSaveable { mutableStateOf<String?>(null) }
+    val typeFilter = selectedType?.let { TransactionType.valueOf(it) }
+    val shown = remember(uiState.entries, query, selectedCategory, typeFilter) {
+        filterLedgerEntries(uiState.entries, query, selectedCategory, typeFilter)
+    }
+    val summary = remember(shown) { Statistics.summarize(shown) }
+    val filtered = query.isNotBlank() || selectedCategory != null || typeFilter != null
+    val exporting by viewModel.exporting.collectAsStateWithLifecycle()
+    val exportMessage by viewModel.exportMessage.collectAsStateWithLifecycle()
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv"), viewModel::export)
+    val categoryTotals = remember(uiState.entries) { uiState.entries.filter { it.type == TransactionType.EXPENSE }
+        .groupBy { it.category }.mapValues { (_, entries) -> entries.sumOf { it.amountCents } }.toList().sortedByDescending { it.second } }
+
     // 与记账首页一致：长按流水编辑 / 删除，删除前必须确认
     var editing by remember { mutableStateOf<TransactionEntity?>(null) }
     var pendingDelete by remember { mutableStateOf<TransactionEntity?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var success by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = {
-                if (range == StatsRange.MONTH) viewModel.moveMonth(-1) else viewModel.moveYear(-1)
-            }) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "上一个")
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text(
-                    text = uiState.rangeLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                val hint = if (range == StatsRange.MONTH) {
-                    "${month.year} 年 ${month.monthValue} 月全部流水"
-                } else {
-                    "${month.year} 年全部流水"
+    val grouped = remember(shown, zone) { shown.groupBy {
+        Instant.ofEpochMilli(it.occurredAtEpochMillis).atZone(zone).toLocalDate()
+    } }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item("range") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { if (range == StatsRange.MONTH) viewModel.moveMonth(-1) else viewModel.moveYear(-1) }) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = "上一个")
                 }
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = {
-                if (range == StatsRange.MONTH) viewModel.moveMonth(1) else viewModel.moveYear(1)
-            }) {
-                Icon(Icons.Default.ChevronRight, contentDescription = "下一个")
-            }
-        }
-
-        error?.let { text ->
-            AppInlineMessage(
-                text = text,
-                isError = true,
-                modifier = Modifier.padding(horizontal = 16.dp),
-                onDismiss = { error = null }
-            )
-        }
-        if (success) {
-            AppInlineMessage(
-                text = "已保存",
-                modifier = Modifier.padding(horizontal = 16.dp),
-                onDismiss = { success = false }
-            )
-        }
-
-        SingleChoiceSegmentedButtonRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-        ) {
-            SegmentedButton(
-                selected = range == StatsRange.MONTH,
-                onClick = { viewModel.setRange(StatsRange.MONTH) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-            ) { Text(StatsRange.MONTH.label) }
-            SegmentedButton(
-                selected = range == StatsRange.YEAR,
-                onClick = { viewModel.setRange(StatsRange.YEAR) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-            ) { Text(StatsRange.YEAR.label) }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "结余",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = MoneyFormatter.formatCents(uiState.summary.balanceCents),
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            StatCard(
-                label = "收入",
-                amountCents = uiState.summary.incomeCents,
-                highlightColor = incomeColor(),
-                icon = Icons.Default.ArrowDownward,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                label = "支出",
-                amountCents = uiState.summary.expenseCents,
-                highlightColor = expenseColor(),
-                icon = Icons.Default.ArrowUpward,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        if (uiState.entries.isEmpty()) {
-            EmptyState(
-                icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                title = "这段时间还没有记录",
-                subtitle = "回记账页点「记一笔」添加第一笔收支",
-                compact = true
-            )
-        } else {
-            Text(
-                text = "长按流水可编辑或删除",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val grouped = uiState.entries.groupBy {
-                    Instant.ofEpochMilli(it.occurredAtEpochMillis).atZone(zone).toLocalDate()
+                Text(uiState.rangeLabel, modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton(onClick = { if (range == StatsRange.MONTH) viewModel.moveMonth(1) else viewModel.moveYear(1) }) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = "下一个")
                 }
-                grouped.forEach { (date, items) ->
-                    item {
-                        Text(
-                            text = formatGroupLabel(date, zone),
-                            style = MaterialTheme.typography.labelMedium,
-                            letterSpacing = 0.8.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-                    items(items, key = { it.id }) { entry ->
-                        EntryRow(
-                            entry = entry,
-                            zone = zone,
-                            onEdit = { editing = entry },
-                            onDelete = { pendingDelete = entry }
-                        )
+            }
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                StatsRange.entries.forEachIndexed { i, option ->
+                    SegmentedButton(selected = range == option, onClick = { viewModel.setRange(option) },
+                        shape = SegmentedButtonDefaults.itemShape(i, StatsRange.entries.size)) { Text(option.label) }
+                }
+            }
+        }
+        item("summary") {
+            Text(if (filtered) "当前筛选合计" else "所选期间合计", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("收入" to summary.incomeCents, "支出" to summary.expenseCents, "结余" to summary.balanceCents).forEach { (label, cents) ->
+                        Column(Modifier.weight(1f)) {
+                            Text(label, style = MaterialTheme.typography.labelMedium)
+                            Text(MoneyFormatter.formatCents(cents), style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
                     }
                 }
-                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+        }
+        item("tools") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = viewModel::goCurrentPeriod) { Text(if (range == StatsRange.MONTH) "回到本月" else "回到今年") }
+                TextButton(enabled = shown.isNotEmpty() && !exporting, onClick = {
+                    viewModel.prepareExport(shown)
+                    exportLauncher.launch("尘剑账单-${month}${if (filtered) "-筛选" else ""}.csv")
+                }) { Text(if (exporting) "导出中…" else "导出 CSV") }
+            }
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("全部" to null, "支出" to TransactionType.EXPENSE.name, "收入" to TransactionType.INCOME.name)) { (label, value) ->
+                    androidx.compose.material3.FilterChip(selected = selectedType == value,
+                        onClick = { selectedType = value; selectedCategory = null }, label = { Text(label) })
+                }
+            }
+        }
+        item("search") {
+            androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it },
+                placeholder = { Text("搜索备注、分类或金额") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("清空") } })
+        }
+        if (categoryTotals.isNotEmpty() && typeFilter != TransactionType.INCOME) item("categories") {
+            Text("支出分类 · 点击筛选", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(categoryTotals, key = { it.first }) { (category, cents) ->
+                    androidx.compose.material3.FilterChip(selected = selectedCategory == category,
+                        onClick = { selectedCategory = if (selectedCategory == category) null else category; selectedType = TransactionType.EXPENSE.name },
+                        label = { Text("$category  ¥${MoneyFormatter.formatCents(cents)}") })
+                }
+            }
+        }
+        if (filtered) item("clear_filters") {
+            TextButton(onClick = { query = ""; selectedCategory = null; selectedType = null }) { Text("清除全部筛选") }
+        }
+        exportMessage?.let { message -> item("export_status") {
+            AppInlineMessage(text = message, onDismiss = viewModel::clearExportMessage)
+        } }
+        error?.let { message -> item("error") { AppInlineMessage(text = message, isError = true, onDismiss = { error = null }) } }
+        if (success) item("saved") { AppInlineMessage(text = "已保存", onDismiss = { success = false }) }
+        item("count") { Text("${shown.size} 笔记录 · 长按编辑或删除", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (shown.isEmpty()) item("empty") {
+            EmptyState(icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                title = if (query.isBlank()) "这段时间还没有记录" else "没有匹配的记录",
+                subtitle = if (query.isBlank()) "回记账页点「记一笔」添加收支" else "试试其他关键词，或清空筛选", compact = true)
+        }
+        grouped.forEach { (date, records) ->
+            item("date:$date") { Text(formatGroupLabel(date, zone), style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary) }
+            items(records, key = { "entry:${it.id}" }) { entry ->
+                EntryRow(entry = entry, zone = zone, onEdit = { editing = entry }, onDelete = { pendingDelete = entry })
             }
         }
     }
@@ -260,8 +210,9 @@ fun StatsScreen(
         EntrySheet(
             initial = target,
             onDismiss = { editing = null },
-            onSave = { type, amount, note ->
-                viewModel.update(target, type, amount, note, onResult)
+            onSave = { type, amount, note, category, occurredAt, complete ->
+                val resultCallback: (LedgerValidation) -> Unit = { result -> complete(result); onResult(result) }
+                viewModel.update(target, type, amount, note, resultCallback, category, occurredAt)
             }
         )
     }
@@ -339,7 +290,7 @@ private fun EntryRow(
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = com.example.myfirstapp.domain.ReminderPlanner.formattedClock(
+                        text = entry.category + " · " + com.example.myfirstapp.domain.ReminderPlanner.formattedClock(
                             entry.occurredAtEpochMillis,
                             zone
                         ),

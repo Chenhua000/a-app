@@ -41,7 +41,7 @@ class Converters {
         TaskEntity::class,
         TaskCompletionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -60,6 +60,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
     companion object {
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ledger_transactions ADD COLUMN category TEXT NOT NULL DEFAULT '其他'")
+                db.execSQL("ALTER TABLE planner_tasks ADD COLUMN hasDate INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE shelf_books ADD COLUMN lastChapterOffset INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** 默认 12 节次，用户可在「节次设置」里自由增删修改。 */
         fun defaultSlots(): List<TimeSlotEntity> = listOf(
             TimeSlotEntity(sortIndex = 0, label = "第1节", startMinute = 8 * 60, endMinute = 8 * 60 + 45),

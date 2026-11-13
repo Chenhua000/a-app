@@ -38,9 +38,27 @@ class MyFirstApp : Application() {
             applicationScope.launch { coordinator.refresh() }
         }
         applicationScope.launch { container.slotRepository.ensureDefaults() }
-        applicationScope.launch { container.bookRepository.ensureDefaultSources() }
+        applicationScope.launch {
+            container.bookRepository.ensureDefaultSources()
+            importBundledLegadoSourcesOnce()
+        }
         // 周期校对走 AlarmManager（轻量），不再在启动时初始化 WorkManager
         container.schedulePeriodicRecovery()
+    }
+
+    /**
+     * 首次启动把 assets/legado_sources.json 的 1744 条笔趣阁书源写进 Room，
+     * 全部默认停用（一次启用太多源会明显拖慢搜索）；用 SharedPreferences 标记只导入一次，
+     * 之后用户在书源管理里按分组批量启用或跑自检。
+     */
+    private suspend fun importBundledLegadoSourcesOnce() {
+        val prefs = getSharedPreferences("novel_import", MODE_PRIVATE)
+        if (prefs.getBoolean("legado_v1", false)) return
+        val text = runCatching {
+            assets.open("legado_sources.json").bufferedReader().use { it.readText() }
+        }.getOrNull() ?: return
+        val count = runCatching { container.bookRepository.importSources(text) }.getOrDefault(0)
+        if (count > 0) prefs.edit().putBoolean("legado_v1", true).apply()
     }
 }
 
@@ -50,7 +68,7 @@ class AppContainer(private val context: android.content.Context) {
         AppDatabase::class.java,
         "campus_assistant.db"
     )
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8)
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
         .addCallback(
             object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {

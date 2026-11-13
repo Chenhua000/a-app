@@ -57,32 +57,38 @@ class RepoRepository(private val context: Context) {
         context.repoDataStore.edit { prefs ->
             val current = RepoSiteCodec.decode(prefs[customKey]).filterNot { it.id == id }
             prefs[customKey] = RepoSiteCodec.encode(current)
+            for (key in listOf(favoriteKey, recentKey)) {
+                prefs[key] = prefs[key].orEmpty().split(',').filter { it.isNotBlank() && it != id }.joinToString(",")
+            }
         }
     }
 
     /** 记录一次打开：把 id 顶到最前、去重、最多保留 5 个 */
     suspend fun recordOpen(id: String) {
-        val cur = readList(recentKey).toMutableList()
-        cur.remove(id)
-        cur.add(0, id)
-        while (cur.size > MAX_RECENT) cur.removeAt(cur.lastIndex)
-        context.repoDataStore.edit { it[recentKey] = cur.joinToString(",") }
+        context.repoDataStore.edit { prefs ->
+            val cur = prefs[recentKey].orEmpty().split(',').filter { it.isNotBlank() && it != id }
+            prefs[recentKey] = (listOf(id) + cur).take(MAX_RECENT).joinToString(",")
+        }
     }
 
-    /** 加入收藏：已满 5 个时返回 false（调用方负责提示） */
     suspend fun addFavorite(id: String): Boolean {
-        val cur = readList(favoriteKey).toMutableList()
-        if (id in cur) return true
-        if (cur.size >= MAX_FAVORITE) return false
-        cur.add(id)
-        context.repoDataStore.edit { it[favoriteKey] = cur.joinToString(",") }
-        return true
+        var added = false
+        context.repoDataStore.edit { prefs ->
+            val cur = prefs[favoriteKey].orEmpty().split(',').filter { it.isNotBlank() }.distinct()
+            if (id in cur) added = true
+            else if (cur.size < MAX_FAVORITE) {
+                prefs[favoriteKey] = (cur + id).joinToString(",")
+                added = true
+            }
+        }
+        return added
     }
 
     suspend fun removeFavorite(id: String) {
-        val cur = readList(favoriteKey).toMutableList()
-        cur.remove(id)
-        context.repoDataStore.edit { it[favoriteKey] = cur.joinToString(",") }
+        context.repoDataStore.edit { prefs ->
+            prefs[favoriteKey] = prefs[favoriteKey].orEmpty().split(',')
+                .filter { it.isNotBlank() && it != id }.joinToString(",")
+        }
     }
 
     /** 本地 APK 存放目录（应用私有 filesDir 下） */
@@ -95,17 +101,29 @@ class RepoRepository(private val context: Context) {
         ?: emptyList()
 
     /** 把用户选中的 APK 复制进私有目录 */
+    @Synchronized
     fun importApk(source: android.net.Uri, displayName: String?): File? = runCatching {
         val rawName = displayName?.takeIf { it.isNotBlank() }
             ?.substringAfterLast('/')
             ?: "app_${System.currentTimeMillis()}.apk"
         val safe = rawName.replace(Regex("[^A-Za-z0-9._\\-\\u4e00-\\u9fa5]"), "_")
             .let { if (it.endsWith(".apk", ignoreCase = true)) it else "$it.apk" }
-        val target = File(apkDir(), safe)
-        context.contentResolver.openInputStream(source)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: return null
-        target
+        var target = File(apkDir(), safe)
+        var suffix = 1
+        while (target.exists()) target = File(apkDir(), "${safe.removeSuffix(".apk")}_${suffix++}.apk")
+        try {
+            context.contentResolver.openInputStream(source)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: return null
+            if (context.packageManager.getPackageArchiveInfo(target.absolutePath, 0) == null) {
+                target.delete()
+                return null
+            }
+            target
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
     }.getOrNull()
 
     fun deleteApk(file: File) {

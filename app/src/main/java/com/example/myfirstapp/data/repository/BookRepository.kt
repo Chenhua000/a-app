@@ -1,5 +1,6 @@
 package com.example.myfirstapp.data.repository
 
+import androidx.room.withTransaction
 import com.example.myfirstapp.data.local.AppDatabase
 import com.example.myfirstapp.data.local.BookSourceEntity
 import com.example.myfirstapp.data.local.ChapterCacheEntity
@@ -84,6 +85,7 @@ class BookRepository(private val database: AppDatabase) {
                         withTimeoutOrNull(25_000) {
                             runCatching { searchInSource(source, keyword) }
                                 .onFailure {
+                                    if (it is kotlinx.coroutines.CancellationException) throw it
                                     android.util.Log.w(
                                         "BookRepository",
                                         "书源 ${source.name} 搜索失败：${it.message}"
@@ -197,9 +199,16 @@ class BookRepository(private val database: AppDatabase) {
         if (!forceRefresh || bookUrl.startsWith(LOCAL_BOOK_PREFIX)) {
             val cached = database.chapterIndexDao().listChapters(bookUrl)
             // 旧版本兜底可能把「书详情页自身」当成唯一一章缓存，升级后自动失效重抓
-            if (cached.isNotEmpty() && !cachedIsBookPage(cached, bookUrl)) {
+            if (cached.isNotEmpty() && (bookUrl.startsWith(LOCAL_BOOK_PREFIX) || !cachedIsBookPage(cached, bookUrl))) {
                 return@withContext cached.map { BookChapter(it.position, it.title, it.url) }
             }
+        }
+        if (bookUrl.startsWith(LOCAL_BOOK_PREFIX)) {
+            val restored = database.chapterCacheDao().localChapters(bookUrl)
+                .sortedBy { it.url.substringAfterLast('#').toIntOrNull() ?: 0 }
+                .mapIndexed { i, c -> ChapterIndexEntity(bookUrl, i, c.title, c.url) }
+            database.chapterIndexDao().upsertAll(restored)
+            return@withContext restored.map { BookChapter(it.position, it.title, it.url) }
         }
         val source = database.bookSourceDao().getSource(sourceId) ?: return@withContext emptyList()
         val rules = BookRulesCodec.fromJson(source.rules) ?: return@withContext emptyList()
@@ -391,7 +400,7 @@ class BookRepository(private val database: AppDatabase) {
      * 本地 TXT / EPUB 导入：把整本书的目录和正文直接写进本地库。
      * 之后目录页、阅读页、进度记忆走的都是和联网书完全相同的流程。
      */
-    suspend fun importLocalBook(parsed: ParsedLocalBook): Long = withContext(io) {
+    suspend fun importLocalBook(parsed: ParsedLocalBook): Long = withContext(io) { database.withTransaction {
         require(parsed.chapters.isNotEmpty()) { "这本书没有解析到正文" }
         val bookUrl = LOCAL_BOOK_PREFIX + java.util.UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -427,6 +436,10 @@ class BookRepository(private val database: AppDatabase) {
             }
         )
         shelfId
+    } }
+
+    suspend fun updateOffset(bookId: Long, index: Int, offset: Int) = withContext(io) {
+        database.shelfBookDao().updateOffset(bookId, index, offset.coerceAtLeast(0))
     }
 
     suspend fun updateProgress(bookId: Long, index: Int, title: String?) = withContext(io) {

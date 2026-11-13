@@ -92,9 +92,9 @@ import com.example.myfirstapp.ui.task.TaskBoardScreen
 fun AppRoot(pendingTarget: String?) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.SCHEDULE) }
     var secondaryName by rememberSaveable { mutableStateOf<String?>(null) }
-    // 小说模块当前子页（书架 / 搜索历史 / 搜索结果）：提升到根节点持有，
+    // 小说模块当前子页（书库 / 书架 / 搜索历史 / 搜索结果）：提升到根节点持有，
     // 这样从搜索结果点开书、再返回时仍能回到搜索结果页，而不是被重置回书架。
-    var novelPage by rememberSaveable { mutableStateOf(NovelPage.SHELF) }
+    var novelPage by rememberSaveable { mutableStateOf(NovelPage.BOOKSTORE) }
     val secondary = routeFromName(secondaryName)
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -227,7 +227,7 @@ fun AppRoot(pendingTarget: String?) {
                     AppBottomBar(
                         currentTab = currentTab,
                         tabs = visibleTabs,
-                        onSelected = { currentTab = it }
+                        onSelected = { currentTab = it; secondaryName = null }
                     )
                 }
             }

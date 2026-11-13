@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import android.net.Uri
+import com.example.myfirstapp.domain.ledgerCsv
 import java.time.YearMonth
 import java.time.ZoneId
 
@@ -68,6 +73,37 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUiState())
 
+    private val _exporting = MutableStateFlow(false)
+    val exporting: StateFlow<Boolean> = _exporting
+    private val _exportMessage = MutableStateFlow<String?>(null)
+    val exportMessage: StateFlow<String?> = _exportMessage
+    private var exportSnapshot: List<TransactionEntity>? = null
+
+    fun prepareExport(entries: List<TransactionEntity>) { exportSnapshot = entries.toList() }
+    fun clearExportMessage() { _exportMessage.value = null }
+    fun export(uri: Uri?) {
+        val entries = exportSnapshot
+        exportSnapshot = null
+        if (uri == null) return
+        if (entries == null) { _exportMessage.value = "导出状态已过期，请重新点击导出"; return }
+        if (_exporting.value) return
+        _exporting.value = true
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                        out.write(ledgerCsv(entries, zone).toByteArray(Charsets.UTF_8))
+                    } ?: error("无法写入所选位置")
+                }
+                _exportMessage.value = "已导出 ${entries.size} 笔记录"
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _exportMessage.value = "导出失败：${error.localizedMessage}" }
+            finally { _exporting.value = false }
+        }
+    }
+
+    fun goCurrentPeriod() { _month.value = YearMonth.now(zone) }
+
     fun setRange(range: StatsRange) {
         _range.value = range
     }
@@ -86,9 +122,11 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
         type: TransactionType,
         amountText: String,
         note: String,
-        onResult: (LedgerValidation) -> Unit
+        onResult: (LedgerValidation) -> Unit,
+        category: String = original?.category ?: "其他",
+        occurredAt: Long = original?.occurredAtEpochMillis ?: System.currentTimeMillis()
     ) {
-        val (entity, validationError) = parseTransactionInput(original, type, amountText, note)
+        val (entity, validationError) = parseTransactionInput(original, type, amountText, note, category, occurredAt)
         if (entity == null) return onResult(LedgerValidation.Error(validationError ?: "保存失败"))
         viewModelScope.launch {
             runCatching { ledgerRepository.saveTransaction(entity) }

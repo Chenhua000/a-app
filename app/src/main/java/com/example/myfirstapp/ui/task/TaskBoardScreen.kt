@@ -1,5 +1,6 @@
 package com.example.myfirstapp.ui.task
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -111,8 +112,12 @@ import com.example.myfirstapp.domain.TASK_REPEAT_DAILY
 import com.example.myfirstapp.domain.TASK_REPEAT_ONCE
 import com.example.myfirstapp.domain.TASK_REPEAT_WEEKLY
 import com.example.myfirstapp.domain.TimeText
+import com.example.myfirstapp.domain.buildTaskEdit
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.myfirstapp.domain.durationLabel
 import com.example.myfirstapp.domain.occursOn
+import com.example.myfirstapp.domain.visibleOn
+import com.example.myfirstapp.domain.isDoneOn
 import com.example.myfirstapp.domain.repeatLabel
 import com.example.myfirstapp.domain.timeMinute
 import java.time.LocalDate
@@ -134,7 +139,8 @@ fun TaskBoardScreen(
     var showSheet by remember { mutableStateOf(false) }
     var showMonth by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
-    var noteEdit by remember { mutableStateOf<TaskEntity?>(null) }
+    var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
+    val message by viewModel.message.collectAsStateWithLifecycle()
 
     val doneMap = remember(completions) {
         completions.groupBy { it.taskId }.mapValues { it.value.map { c -> c.epochDay }.toSet() }
@@ -143,9 +149,12 @@ fun TaskBoardScreen(
         viewModel.setDone(task.id, day, done)
     }
     val onDelete: (TaskEntity) -> Unit = { pendingDelete = it }
-    val onNote: (TaskEntity) -> Unit = { noteEdit = it }
+    val onNote: (TaskEntity) -> Unit = { editingTask = it; showMonth = false; showSheet = true }
     val onTogglePin: (TaskEntity) -> Unit = { viewModel.setPinned(it, !it.pinned) }
-    val onToggleReminder: (TaskEntity) -> Unit = { viewModel.setReminderOn(it, !it.reminderOn) }
+    val onToggleReminder: (TaskEntity) -> Unit = {
+        if (!it.hasDate) { editingTask = it; showMonth = false; showSheet = true }
+        else viewModel.setReminderOn(it, !it.reminderOn)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -156,7 +165,9 @@ fun TaskBoardScreen(
                     .padding(horizontal = AppDimens.Space4, vertical = AppDimens.Space2),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Text("${selectedDay.monthValue}月${selectedDay.dayOfMonth}日", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = { selectedDay = today }) { Text("今天") }
                 IconButton(onClick = { showMonth = true }) {
                     Icon(
                         Icons.Default.CalendarMonth,
@@ -166,6 +177,8 @@ fun TaskBoardScreen(
                 }
             }
 
+            message?.let { com.example.myfirstapp.ui.components.AppInlineMessage(
+                text = it, isError = true, onDismiss = viewModel::clearMessage) }
             WeekStrip(selected = selectedDay, today = today, onSelect = { selectedDay = it })
 
             Box(
@@ -173,7 +186,7 @@ fun TaskBoardScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (tasks.isEmpty()) {
-                    EmptyBoardState(onAdd = { showSheet = true })
+                    EmptyBoardState(onAdd = { editingTask = null; showSheet = true })
                 } else {
                     DayTasksView(
                         day = selectedDay,
@@ -191,7 +204,7 @@ fun TaskBoardScreen(
         }
 
         SmallFloatingActionButton(
-            onClick = { showSheet = true },
+            onClick = { editingTask = null; showSheet = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
@@ -223,40 +236,25 @@ fun TaskBoardScreen(
         )
     }
 
-    noteEdit?.let { task ->
-        var text by remember { mutableStateOf(task.note ?: "") }
-        AlertDialog(
-            onDismissRequest = { noteEdit = null },
-            title = { Text("备注") },
-            text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    placeholder = { Text("写点备注…") },
-                    singleLine = false,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.save(task.copy(note = text.trim().takeIf { it.isNotEmpty() }))
-                    noteEdit = null
-                }) { Text("保存") }
-            },
-            dismissButton = {
-                TextButton(onClick = { noteEdit = null }) { Text("取消") }
-            }
-        )
-    }
-
     if (showSheet) {
         TaskEditorSheet(
+            initial = editingTask,
             defaultDateText = TimeText.formatDate(selectedDay),
-            onDismiss = { showSheet = false },
-            onSave = { entity ->
-                viewModel.save(entity)
-                showSheet = false
+            onDismiss = { showSheet = false; editingTask = null },
+            onSave = { entity, complete ->
+                viewModel.save(entity) { error ->
+                    complete(error)
+                    if (error == null) {
+                        selectedDay = when {
+                            !entity.hasDate -> today
+                            entity.repeatType == TASK_REPEAT_ONCE || editingTask == null ->
+                                Instant.ofEpochMilli(entity.anchorAtEpochMillis).atZone(zone).toLocalDate()
+                            else -> selectedDay
+                        }
+                        showSheet = false
+                        editingTask = null
+                    }
+                }
             }
         )
     }
@@ -344,13 +342,13 @@ private fun DayTasksView(
     onTogglePin: (TaskEntity) -> Unit,
     onToggleReminder: (TaskEntity) -> Unit
 ) {
-    val dayTasks = remember(tasks, day, zone) {
-        tasks.filter { it.occursOn(day, zone) }
+    val dayTasks = remember(tasks, day, zone, doneMap) {
+        tasks.filter { it.visibleOn(day, zone, doneMap) }
             .sortedWith(compareByDescending<TaskEntity> { it.pinned }.thenBy { it.timeMinute(zone) })
     }
     val dayLong = day.toEpochDay()
-    val notDone = dayTasks.filter { !(doneMap[it.id]?.contains(dayLong) ?: false) }
-    val done = dayTasks.filter { doneMap[it.id]?.contains(dayLong) ?: false }
+    val notDone = dayTasks.filter { !(it.isDoneOn(dayLong, doneMap)) }
+    val done = dayTasks.filter { it.isDoneOn(dayLong, doneMap) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -443,7 +441,7 @@ private fun TaskItem(
     onToggle: (TaskEntity, Long, Boolean) -> Unit,
     onDelete: (TaskEntity) -> Unit
 ) {
-    val done = doneMap[task.id]?.contains(dayEpochDay) ?: false
+    val done = task.isDoneOn(dayEpochDay, doneMap)
     val isLong = task.durationType == TASK_DURATION_LONG
     val accent = if (isLong) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
     val timeText = TimeText.formatMinute(task.timeMinute(zone))
@@ -486,7 +484,8 @@ private fun TaskItem(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = timeText,
+                        text = if (!task.hasDate) "待安排" else if (task.repeatType == TASK_REPEAT_ONCE && !done &&
+                            Instant.ofEpochMilli(task.anchorAtEpochMillis).atZone(zone).toLocalDate().isBefore(LocalDate.now(zone))) "已逾期 · $timeText" else timeText,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else accent
                     )
@@ -559,7 +558,7 @@ private fun TaskSwipeItem(
             horizontalArrangement = Arrangement.End
         ) {
             Row(modifier = Modifier.width(stripDp).fillMaxHeight()) {
-                SwipeActionCell(MaterialTheme.colorScheme.primary, Icons.Default.Edit, "备注") {
+                SwipeActionCell(MaterialTheme.colorScheme.primary, Icons.Default.Edit, "编辑任务") {
                     onNote(task); closeStrip()
                 }
                 SwipeActionCell(
@@ -709,6 +708,7 @@ private fun MonthCalendarOverlay(
 ) {
     val monthState = remember { mutableStateOf(YearMonth.now(zone)) }
     var detailDay by remember { mutableStateOf<LocalDate?>(null) }
+    BackHandler { if (detailDay != null) detailDay = null else onClose() }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -833,7 +833,7 @@ private fun DayCell(
 ) {
     val dayLong = date.toEpochDay()
     val dayTasks = remember(tasks, date, zone) { tasks.filter { it.occursOn(date, zone) } }
-    val dayDone = remember(dayTasks, doneMap) { dayTasks.map { doneMap[it.id]?.contains(dayLong) ?: false } }
+    val dayDone = remember(dayTasks, doneMap) { dayTasks.map { it.isDoneOn(dayLong, doneMap) } }
 
     Box(
         modifier = modifier
@@ -918,13 +918,13 @@ private fun DayDetailList(
     val doneMap = remember(completions) {
         completions.groupBy { it.taskId }.mapValues { it.value.map { c -> c.epochDay }.toSet() }
     }
-    val dayTasks = remember(tasks, day, zone) {
-        tasks.filter { it.occursOn(day, zone) }
+    val dayTasks = remember(tasks, day, zone, doneMap) {
+        tasks.filter { it.visibleOn(day, zone, doneMap) }
             .sortedWith(compareByDescending<TaskEntity> { it.pinned }.thenBy { it.timeMinute(zone) })
     }
     val dayLong = day.toEpochDay()
-    val notDone = dayTasks.filter { !(doneMap[it.id]?.contains(dayLong) ?: false) }
-    val done = dayTasks.filter { doneMap[it.id]?.contains(dayLong) ?: false }
+    val notDone = dayTasks.filter { !(it.isDoneOn(dayLong, doneMap)) }
+    val done = dayTasks.filter { it.isDoneOn(dayLong, doneMap) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -980,20 +980,24 @@ private fun DayDetailList(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskEditorSheet(
+    initial: TaskEntity? = null,
     defaultDateText: String,
     onDismiss: () -> Unit,
-    onSave: (TaskEntity) -> Unit
+    onSave: (TaskEntity, (String?) -> Unit) -> Unit
 ) {
+    BackHandler(onBack = onDismiss)
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     val initToday = TimeText.formatDate(today)
     val initTomorrow = TimeText.formatDate(today.plusDays(1))
 
-    var title by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+    val initialDate = initial?.let { Instant.ofEpochMilli(it.anchorAtEpochMillis).atZone(zone).toLocalDate() }
+    val chosenDate = initialDate?.let(TimeText::formatDate) ?: defaultDateText
+    var title by rememberSaveable(initial?.id) { mutableStateOf(initial?.title.orEmpty()) }
+    var note by rememberSaveable(initial?.id) { mutableStateOf(initial?.note.orEmpty()) }
     var dateMode by remember {
         mutableStateOf(
-            when (defaultDateText) {
+            if (initial?.hasDate == false) "none" else when (chosenDate) {
                 initToday -> "today"
                 initTomorrow -> "tomorrow"
                 "" -> "today"
@@ -1002,15 +1006,17 @@ private fun TaskEditorSheet(
         )
     }
     var pickedDate by remember {
-        mutableStateOf(if (dateMode == "pick") TimeText.parseDate(defaultDateText) else null)
+        mutableStateOf(if (dateMode == "pick") TimeText.parseDate(chosenDate) else null)
     }
-    var durationType by remember { mutableStateOf(TASK_DURATION_SHORT) }
-    var repeatType by remember { mutableStateOf(TASK_REPEAT_ONCE) }
-    var reminderOn by remember { mutableStateOf(false) }
+    var durationType by remember { mutableStateOf(initial?.durationType ?: TASK_DURATION_SHORT) }
+    var repeatType by remember { mutableStateOf(initial?.repeatType ?: TASK_REPEAT_ONCE) }
+    var reminderOn by remember { mutableStateOf(initial?.reminderOn ?: false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val defaultMinute = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
+    var timeText by remember { mutableStateOf(initial?.let { TimeText.formatMinute(it.timeMinute(zone)) }
+        ?: LocalTime.now().plusHours(1).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))) }
+    var saving by remember { mutableStateOf(false) }
     val baseDate = when (dateMode) {
         "today" -> today
         "tomorrow" -> today.plusDays(1)
@@ -1019,20 +1025,12 @@ private fun TaskEditorSheet(
     }
 
     fun attemptSave() {
-        val trimmed = title.trim()
-        if (trimmed.isEmpty()) { error = "请填写任务标题"; return }
-        val anchor = TimeText.parseDateTimeToMillis(baseDate, defaultMinute, zone)
-        onSave(
-            TaskEntity(
-                id = 0L,
-                title = trimmed,
-                note = note.trim().takeIf { it.isNotEmpty() },
-                durationType = durationType,
-                repeatType = repeatType,
-                anchorAtEpochMillis = anchor,
-                reminderOn = reminderOn
-            )
-        )
+        if (saving) return
+        val (entity, validation) = buildTaskEdit(initial, title, note,
+            baseDate.takeUnless { dateMode == "none" }, timeText, durationType, repeatType, reminderOn, zone)
+        if (entity == null) { error = validation; return }
+        saving = true
+        onSave(entity) { failure -> saving = false; error = failure }
     }
 
     Box(
@@ -1080,9 +1078,9 @@ private fun TaskEditorSheet(
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    TextButton(onClick = { attemptSave() }) {
+                    TextButton(enabled = !saving, onClick = { attemptSave() }) {
                         Text(
-                            "添加",
+                            if (saving) "保存中…" else if (initial == null) "添加" else "保存修改",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1139,8 +1137,14 @@ private fun TaskEditorSheet(
                             icon = Icons.Default.CalendarMonth,
                             onClick = { showDatePicker = true }
                         )
-                        DatePill("没有日期", dateMode == "none") { dateMode = "none" }
+                        DatePill("待安排", dateMode == "none") { dateMode = "none"; reminderOn = false; repeatType = TASK_REPEAT_ONCE }
                     }
+                }
+                if (dateMode != "none") {
+                    OutlinedTextField(value = timeText, onValueChange = { timeText = it },
+                        label = { Text("时间（HH:mm）") }, singleLine = true,
+                        supportingText = { Text("开启提醒后，将在这个时间通知你") },
+                        modifier = Modifier.fillMaxWidth())
                 }
                 // 类型 / 工作量 分段控件
                 Row(
@@ -1185,12 +1189,14 @@ private fun TaskEditorSheet(
                     )
                     FilterChip(
                         selected = repeatType == TASK_REPEAT_DAILY,
-                        onClick = { repeatType = TASK_REPEAT_DAILY },
+                        onClick = { if (dateMode != "none") repeatType = TASK_REPEAT_DAILY },
+                        enabled = dateMode != "none",
                         label = { Text("每天") }
                     )
                     FilterChip(
                         selected = repeatType == TASK_REPEAT_WEEKLY,
-                        onClick = { repeatType = TASK_REPEAT_WEEKLY },
+                        onClick = { if (dateMode != "none") repeatType = TASK_REPEAT_WEEKLY },
+                        enabled = dateMode != "none",
                         label = { Text("每周") }
                     )
                 }
@@ -1213,7 +1219,7 @@ private fun TaskEditorSheet(
                         icon = Icons.Default.AlarmAdd,
                         contentDescription = "定时提醒",
                         tint = if (reminderOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        onClick = { reminderOn = !reminderOn }
+                        onClick = { if (dateMode == "none") error = "请先选择日期和时间" else reminderOn = !reminderOn }
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     ToolbarIcon(
@@ -1221,7 +1227,7 @@ private fun TaskEditorSheet(
                         contentDescription = "切换重复",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         onClick = {
-                            repeatType = when (repeatType) {
+                            repeatType = if (dateMode == "none") TASK_REPEAT_ONCE else when (repeatType) {
                                 TASK_REPEAT_ONCE -> TASK_REPEAT_DAILY
                                 TASK_REPEAT_DAILY -> TASK_REPEAT_WEEKLY
                                 else -> TASK_REPEAT_ONCE
@@ -1238,7 +1244,7 @@ private fun TaskEditorSheet(
                     ) {
                         Icon(
                             Icons.Default.Check,
-                            contentDescription = "添加",
+                            contentDescription = if (initial == null) "添加" else "保存修改",
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.padding(12.dp).size(22.dp)
                         )
@@ -1250,14 +1256,14 @@ private fun TaskEditorSheet(
     }
 
     if (showDatePicker) {
-        val initialMillis = (pickedDate ?: today).atStartOfDay(zone).toInstant().toEpochMilli()
+        val initialMillis = (pickedDate ?: today).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
         val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let { millis ->
-                        pickedDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+                        pickedDate = Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
                         dateMode = "pick"
                     }
                     showDatePicker = false

@@ -94,7 +94,8 @@ data class TransactionEntity(
     val type: TransactionType,
     val amountCents: Long,
     val note: String? = null,
-    val occurredAtEpochMillis: Long
+    val occurredAtEpochMillis: Long,
+    @androidx.room.ColumnInfo(defaultValue = "'其他'") val category: String = "其他"
 )
 
 /**
@@ -144,7 +145,8 @@ data class ShelfBookEntity(
     val bookUrl: String,
     val lastChapterIndex: Int = 0,
     val lastChapterTitle: String? = null,
-    val lastReadAtMillis: Long = System.currentTimeMillis()
+    val lastReadAtMillis: Long = System.currentTimeMillis(),
+    @androidx.room.ColumnInfo(defaultValue = "0") val lastChapterOffset: Int = 0
 )
 
 /** 目录缓存：进去一次就不再重复抓网页 */
@@ -218,7 +220,8 @@ data class TaskEntity(
     /** 置顶：在当天未完成/已完成分组内排到最前 */
     val pinned: Boolean = false,
     /** 是否开启定时提醒（按 anchor 时间触发系统闹钟） */
-    val reminderOn: Boolean = false
+    val reminderOn: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "1") val hasDate: Boolean = true
 )
 
 /**

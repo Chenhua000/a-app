@@ -196,9 +196,14 @@ interface ShelfBookDao {
 
     @Query(
         "UPDATE shelf_books SET lastChapterIndex = :index, lastChapterTitle = :title, " +
+            "lastChapterOffset = CASE WHEN lastChapterIndex = :index THEN lastChapterOffset ELSE 0 END, " +
             "lastReadAtMillis = :at WHERE id = :id"
     )
     suspend fun updateProgress(id: Long, index: Int, title: String?, at: Long)
+
+    @Query("UPDATE shelf_books SET lastChapterOffset = :offset WHERE id = :id AND lastChapterIndex = :index")
+    suspend fun updateOffset(id: Long, index: Int, offset: Int)
+
 }
 
 @Dao
@@ -216,12 +221,15 @@ interface ChapterIndexDao {
     suspend fun clear(bookUrl: String)
 
     /** 内置书源规则升级后，旧目录一律作废，让它们重新抓一次 */
-    @Query("DELETE FROM chapter_index")
+    @Query("DELETE FROM chapter_index WHERE bookUrl NOT LIKE 'local://%'")
     suspend fun clearAll()
 }
 
 @Dao
 interface ChapterCacheDao {
+    @Query("SELECT * FROM chapter_cache WHERE bookUrl = :bookUrl")
+    suspend fun localChapters(bookUrl: String): List<ChapterCacheEntity>
+
     @Query("SELECT * FROM chapter_cache WHERE url = :url")
     suspend fun get(url: String): ChapterCacheEntity?
 
@@ -306,6 +314,9 @@ interface TaskDao {
 
     @Query("DELETE FROM task_completions WHERE taskId = :taskId AND epochDay = :epochDay")
     suspend fun deleteCompletion(taskId: Long, epochDay: Long)
+
+    @Query("DELETE FROM task_completions WHERE taskId = :taskId")
+    suspend fun deleteCompletions(taskId: Long)
 
     /** 清理 60 天前的完成记录，避免表无限增长 */
     @Query("DELETE FROM task_completions WHERE epochDay < :beforeEpochDay")

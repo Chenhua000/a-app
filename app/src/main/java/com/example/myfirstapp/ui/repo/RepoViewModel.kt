@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class RepoViewModel(application: Application) : AndroidViewModel(application) {
@@ -77,12 +79,13 @@ class RepoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshApks() {
-        _apks.value = repository.localApks()
+        viewModelScope.launch { _apks.value = withContext(Dispatchers.IO) { repository.localApks() } }
     }
 
     fun importApk(uri: Uri, displayName: String?) {
         viewModelScope.launch {
-            val file = repository.importApk(uri, displayName)
+            _message.value = "正在导入 APK…"
+            val file = withContext(Dispatchers.IO) { repository.importApk(uri, displayName) }
             if (file == null) {
                 _message.value = "导入失败，请确认选择的是 APK 文件"
             } else {
@@ -94,7 +97,7 @@ class RepoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteApk(file: File) {
         viewModelScope.launch {
-            repository.deleteApk(file)
+            withContext(Dispatchers.IO) { repository.deleteApk(file) }
             refreshApks()
             _message.value = "已删除"
         }

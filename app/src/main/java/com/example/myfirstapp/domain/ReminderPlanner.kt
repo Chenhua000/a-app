@@ -39,7 +39,7 @@ object ReminderPlanner {
         exceptions: List<CourseExceptionEntity>,
         defaultReminderMinutes: Int
     ): List<PlannedReminder> {
-        val cutoff = nowMillis + FUTURE_TOLERANCE_MILLIS
+        val cutoff = nowMillis
         return courseReminders(nowMillis, zone, courses, exceptions, defaultReminderMinutes)
             .asSequence()
             .filter { it.triggerAtMillis > cutoff }
@@ -53,7 +53,7 @@ object ReminderPlanner {
         todos: List<TodoEntity>,
         defaultReminderMinutes: Int
     ): List<PlannedReminder> {
-        val cutoff = nowMillis + FUTURE_TOLERANCE_MILLIS
+        val cutoff = nowMillis
         return todoReminders(nowMillis, todos, defaultReminderMinutes)
             .asSequence()
             .filter { it.triggerAtMillis > cutoff }
@@ -65,15 +65,33 @@ object ReminderPlanner {
     fun upcomingTaskReminders(
         nowMillis: Long,
         zone: ZoneId,
-        tasks: List<com.example.myfirstapp.data.local.TaskEntity>
+        tasks: List<com.example.myfirstapp.data.local.TaskEntity>,
+        completions: List<com.example.myfirstapp.data.local.TaskCompletionEntity> = emptyList()
     ): List<PlannedReminder> {
-        val cutoff = nowMillis + FUTURE_TOLERANCE_MILLIS
-        return taskReminders(nowMillis, zone, tasks)
+        val cutoff = nowMillis
+        return taskReminders(nowMillis, zone, tasks, completions)
             .asSequence()
             .filter { it.triggerAtMillis > cutoff }
             .map { it.toPlanned() }
             .take(MAX_ALARMS_PER_STREAM)
             .toList()
+    }
+
+    fun firedReminders(
+        nowMillis: Long,
+        zone: ZoneId,
+        courses: List<CourseEntity>,
+        exceptions: List<CourseExceptionEntity>,
+        todos: List<TodoEntity>,
+        tasks: List<com.example.myfirstapp.data.local.TaskEntity>,
+        completions: List<com.example.myfirstapp.data.local.TaskCompletionEntity>,
+        defaultReminderMinutes: Int
+    ): List<PlannedReminder> {
+        val lower = nowMillis - PAST_TOLERANCE_MILLIS
+        return (courseReminders(nowMillis, zone, courses, exceptions, defaultReminderMinutes) +
+            todoReminders(nowMillis, todos, defaultReminderMinutes) +
+            taskReminders(lower - 1, zone, tasks, completions))
+            .filter { it.triggerAtMillis in lower..nowMillis }.map { it.toPlanned() }
     }
 
     fun dueReminders(
@@ -159,13 +177,24 @@ object ReminderPlanner {
     private fun taskReminders(
         nowMillis: Long,
         zone: ZoneId,
-        tasks: List<com.example.myfirstapp.data.local.TaskEntity>
+        tasks: List<com.example.myfirstapp.data.local.TaskEntity>,
+        completions: List<com.example.myfirstapp.data.local.TaskCompletionEntity>
     ): List<ReminderItem> {
         val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone)
         return tasks
-            .filter { it.reminderOn }
+            .filter { it.reminderOn && it.hasDate }
             .mapNotNull { task ->
-                val trigger = nextTriggerMillis(now, zone, task) ?: return@mapNotNull null
+                var candidate = nextTriggerMillis(now, zone, task) ?: return@mapNotNull null
+                var attempts = 0
+                fun completed(at: Long): Boolean = completions.any {
+                    it.taskId == task.id && it.epochDay == java.time.Instant.ofEpochMilli(at).atZone(zone).toLocalDate().toEpochDay()
+                }
+                while (completed(candidate) && attempts++ < 400) {
+                    candidate = nextTriggerMillis(java.time.Instant.ofEpochMilli(candidate).atZone(zone), zone, task)
+                        ?: return@mapNotNull null
+                }
+                if (completed(candidate)) return@mapNotNull null
+                val trigger = candidate
                 ReminderItem(
                     stream = ReminderStream.TASK,
                     triggerAtMillis = trigger,
@@ -175,7 +204,7 @@ object ReminderPlanner {
                         append(formattedClock(trigger, zone))
                         task.note?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
                     },
-                    key = "task:${task.id}"
+                    key = "task:${task.id}:${java.time.Instant.ofEpochMilli(trigger).atZone(zone).toLocalDate().toEpochDay()}"
                 )
             }
             .sortedBy { it.triggerAtMillis }
@@ -195,7 +224,7 @@ object ReminderPlanner {
             }
             TASK_REPEAT_DAILY -> {
                 val time = anchor.toLocalTime()
-                var candidate = now.toLocalDate().atTime(time).atZone(zone)
+                var candidate = maxOf(now.toLocalDate(), anchor.toLocalDate()).atTime(time).atZone(zone)
                 var guard = 0
                 while (candidate.toInstant().toEpochMilli() <= nowMs && guard < 5) {
                     candidate = candidate.plusDays(1)
@@ -206,7 +235,7 @@ object ReminderPlanner {
             TASK_REPEAT_WEEKLY -> {
                 val time = anchor.toLocalTime()
                 val dow = anchor.dayOfWeek
-                var candidate = now.toLocalDate().atTime(time).atZone(zone)
+                var candidate = maxOf(now.toLocalDate(), anchor.toLocalDate()).atTime(time).atZone(zone)
                 var guard = 0
                 while ((candidate.dayOfWeek != dow || candidate.toInstant().toEpochMilli() <= nowMs) && guard < 8) {
                     candidate = candidate.plusDays(1)

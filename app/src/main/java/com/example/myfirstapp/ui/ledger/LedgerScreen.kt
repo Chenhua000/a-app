@@ -245,11 +245,12 @@ fun LedgerScreen(
         EntrySheet(
             initial = draft,
             onDismiss = { showEntry = false },
-            onSave = { type, amount, note ->
+            onSave = { type, amount, note, category, occurredAt, complete ->
+                val resultCallback: (LedgerValidation) -> Unit = { result -> complete(result); onResult(result) }
                 if (draft == null) {
-                    viewModel.save(type, amount, note, onResult)
+                    viewModel.save(type, amount, note, resultCallback, category, occurredAt)
                 } else {
-                    viewModel.update(draft, type, amount, note, onResult)
+                    viewModel.update(draft, type, amount, note, resultCallback, category, occurredAt)
                 }
             }
         )
@@ -333,7 +334,7 @@ private fun RecentRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = RECENT_DATE_FORMAT.format(
+                    text = transaction.category + " · " + RECENT_DATE_FORMAT.format(
                         java.time.Instant.ofEpochMilli(transaction.occurredAtEpochMillis)
                             .atZone(java.time.ZoneId.systemDefault())
                             .toLocalDate()
@@ -432,7 +433,7 @@ internal fun LedgerDeleteConfirmDialog(
 internal fun EntrySheet(
     initial: TransactionEntity? = null,
     onDismiss: () -> Unit,
-    onSave: (TransactionType, String, String) -> Unit
+    onSave: (TransactionType, String, String, String, Long, (LedgerValidation) -> Unit) -> Unit
 ) {
     var typeIndex by remember(initial?.id) {
         mutableIntStateOf(if (initial?.type == TransactionType.INCOME) 0 else 1)
@@ -442,6 +443,24 @@ internal fun EntrySheet(
     }
     var note by remember(initial?.id) { mutableStateOf(initial?.note.orEmpty()) }
 
+    var category by remember(initial?.id) { mutableStateOf(initial?.category ?: "餐饮") }
+    val zone = java.time.ZoneId.systemDefault()
+    var date by remember(initial?.id) { mutableStateOf(java.time.Instant.ofEpochMilli(initial?.occurredAtEpochMillis ?: System.currentTimeMillis()).atZone(zone).toLocalDate()) }
+    var pickDate by remember { mutableStateOf(false) }
+    var inputError by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    if (pickDate) {
+        val dateState = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = date.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())
+        androidx.compose.material3.DatePickerDialog(
+            onDismissRequest = { pickDate = false },
+            confirmButton = { TextButton(onClick = {
+                dateState.selectedDateMillis?.let { date = java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate() }
+                pickDate = false
+            }) { Text("确定") } },
+            dismissButton = { TextButton(onClick = { pickDate = false }) { Text("取消") } }
+        ) { androidx.compose.material3.DatePicker(state = dateState) }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -449,6 +468,7 @@ internal fun EntrySheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -460,12 +480,12 @@ internal fun EntrySheet(
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = typeIndex == 0,
-                    onClick = { typeIndex = 0 },
+                    onClick = { typeIndex = 0; category = "生活费" },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                 ) { Text("收入") }
                 SegmentedButton(
                     selected = typeIndex == 1,
-                    onClick = { typeIndex = 1 },
+                    onClick = { typeIndex = 1; category = "餐饮" },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                 ) { Text("支出") }
             }
@@ -477,9 +497,22 @@ internal fun EntrySheet(
                 prefix = { Text("¥") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
                 textStyle = MaterialTheme.typography.headlineMedium
             )
 
+            OutlinedButton(onClick = { pickDate = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("日期  $date  · 点击修改")
+            }
+            Text("分类", style = MaterialTheme.typography.labelLarge)
+            val categories = if (typeIndex == 0) listOf("工资", "生活费", "兼职", "退款", "其他")
+                else listOf("餐饮", "交通", "购物", "学习", "娱乐", "住房", "医疗", "其他")
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(categories.size) { i ->
+                    androidx.compose.material3.FilterChip(selected = category == categories[i],
+                        onClick = { category = categories[i] }, label = { Text(categories[i]) })
+                }
+            }
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
@@ -488,19 +521,33 @@ internal fun EntrySheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            inputError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Row(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(
                     onClick = {
+                        val cents = com.example.myfirstapp.domain.MoneyParser.parseYuanToCents(amount)
+                        if (cents == null || cents <= 0) {
+                            inputError = "请输入大于 0 的金额，最多两位小数"
+                            return@Button
+                        }
+                        saving = true
                         onSave(
                             if (typeIndex == 0) TransactionType.INCOME else TransactionType.EXPENSE,
                             amount,
-                            note
+                            note,
+                            category,
+                            date.atTime(java.time.Instant.ofEpochMilli(initial?.occurredAtEpochMillis ?: System.currentTimeMillis()).atZone(zone).toLocalTime()).atZone(zone).toInstant().toEpochMilli(),
+                            { result ->
+                                saving = false
+                                inputError = (result as? LedgerValidation.Error)?.message
+                            }
                         )
                     },
-                    modifier = Modifier.weight(1f)
-                ) { Text(if (initial == null) "保存" else "保存修改") }
+                    modifier = Modifier.weight(1f),
+                    enabled = !saving
+                ) { Text(if (saving) "保存中…" else if (initial == null) "保存" else "保存修改") }
             }
             Spacer(modifier = Modifier.size(16.dp))
         }

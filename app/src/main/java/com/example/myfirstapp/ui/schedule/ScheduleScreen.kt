@@ -106,7 +106,7 @@ fun ScheduleScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${TimeText.formatDate(uiState.weekStart)} 起这一周",
+                text = "${uiState.weekStart.monthValue}月${uiState.weekStart.dayOfMonth}日 — ${uiState.weekStart.plusDays(6).monthValue}月${uiState.weekStart.plusDays(6).dayOfMonth}日",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -126,6 +126,11 @@ fun ScheduleScreen(
             }
         }
 
+        Text(
+            text = if (uiState.placed.isEmpty()) "本周暂无课程 · 点击空白格快速添加" else "本周 ${uiState.placed.size} 次课程 · 点击课程查看安排",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         message?.let { current ->
             AppInlineMessage(
                 text = current.text,

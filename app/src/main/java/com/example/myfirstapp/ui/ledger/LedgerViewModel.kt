@@ -43,8 +43,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         .map { all -> all.take(6) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun save(type: TransactionType, amountText: String, note: String, onResult: (LedgerValidation) -> Unit) {
-        commit(null, type, amountText, note, onResult)
+    fun save(type: TransactionType, amountText: String, note: String, onResult: (LedgerValidation) -> Unit, category: String = "其他", occurredAt: Long = System.currentTimeMillis()) {
+        commit(null, type, amountText, note, onResult, category, occurredAt)
     }
 
     /** 编辑已有记录：保留 id 与发生时间，LedgerRepository.saveTransaction 会走 update 分支 */
@@ -53,9 +53,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         type: TransactionType,
         amountText: String,
         note: String,
-        onResult: (LedgerValidation) -> Unit
+        onResult: (LedgerValidation) -> Unit,
+        category: String = original?.category ?: "其他",
+        occurredAt: Long = original?.occurredAtEpochMillis ?: System.currentTimeMillis()
     ) {
-        commit(original, type, amountText, note, onResult)
+        commit(original, type, amountText, note, onResult, category, occurredAt)
     }
 
     private fun commit(
@@ -63,9 +65,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         type: TransactionType,
         amountText: String,
         note: String,
-        onResult: (LedgerValidation) -> Unit
+        onResult: (LedgerValidation) -> Unit,
+        category: String = original?.category ?: "其他",
+        occurredAt: Long = original?.occurredAtEpochMillis ?: System.currentTimeMillis()
     ) {
-        val (entity, validationError) = parseTransactionInput(original, type, amountText, note)
+        val (entity, validationError) = parseTransactionInput(original, type, amountText, note, category, occurredAt)
         if (entity == null) return onResult(LedgerValidation.Error(validationError ?: "保存失败"))
         viewModelScope.launch {
             runCatching { repository.saveTransaction(entity) }
@@ -88,7 +92,9 @@ internal fun parseTransactionInput(
     original: TransactionEntity?,
     type: TransactionType,
     amountText: String,
-    note: String
+    note: String,
+    category: String = original?.category ?: "其他",
+    occurredAt: Long = original?.occurredAtEpochMillis ?: System.currentTimeMillis()
 ): Pair<TransactionEntity?, String?> {
     val cents = MoneyParser.parseYuanToCents(amountText)
         ?: return null to "金额格式不对，最多两位小数，例如 18.50"
@@ -97,12 +103,15 @@ internal fun parseTransactionInput(
     val entity = original?.copy(
         type = type,
         amountCents = cents,
-        note = trimmedNote
+        note = trimmedNote,
+        category = category.trim().ifBlank { "其他" },
+        occurredAtEpochMillis = occurredAt
     ) ?: TransactionEntity(
         type = type,
         amountCents = cents,
         note = trimmedNote,
-        occurredAtEpochMillis = System.currentTimeMillis()
+        occurredAtEpochMillis = occurredAt,
+        category = category.trim().ifBlank { "其他" }
     )
     return entity to null
 }

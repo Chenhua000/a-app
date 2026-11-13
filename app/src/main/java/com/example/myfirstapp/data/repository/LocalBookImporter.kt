@@ -6,20 +6,22 @@ import android.provider.OpenableColumns
 import com.example.myfirstapp.domain.LocalBookParser
 import com.example.myfirstapp.domain.ParsedLocalBook
 import java.nio.ByteBuffer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 
 /** 把用户选中的文件读进来，识别格式/编码，再交给纯解析器 */
 object LocalBookImporter {
 
-    suspend fun parse(context: Context, uri: Uri): ParsedLocalBook {
+    suspend fun parse(context: Context, uri: Uri): ParsedLocalBook = withContext(Dispatchers.IO) {
         val name = displayName(context, uri) ?: "未命名书籍"
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalArgumentException("读不到这个文件，请重新选择")
         if (bytes.isEmpty()) throw IllegalArgumentException("文件是空的")
 
         val lower = name.lowercase()
-        return when {
+        when {
             lower.endsWith(".epub") || looksLikeZip(bytes) ->
                 LocalBookParser.parseEpub(bytes, name)
 

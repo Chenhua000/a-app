@@ -38,7 +38,7 @@ class ReminderCoordinator(
                 alarmScheduler.cancelAll()
                 return
             }
-            val planned = loadPlanned(now)
+            val planned = loadPlanned(now, dueOnly = true)
             val targets = when {
                 key != null -> planned.filter { it.key == key }
                 else -> planned.filter {
@@ -75,16 +75,18 @@ class ReminderCoordinator(
         alarmScheduler.reschedule(planned)
     }
 
-    private suspend fun loadPlanned(now: Long): List<PlannedReminder> {
+    private suspend fun loadPlanned(now: Long, dueOnly: Boolean = false): List<PlannedReminder> {
         val defaultMinutes = settingsRepository.currentDefaultReminderMinutes()
         val zone = zoneProvider()
         val courses = database.courseDao().observeCourses().first()
         val exceptions = database.courseDao().observeExceptions().first()
         val todos = database.todoDao().observeTodos().first()
         val tasks = database.taskDao().observeTasks().first()
+        val completions = database.taskDao().observeCompletions().first()
+        if (dueOnly) return ReminderPlanner.firedReminders(now, zone, courses, exceptions, todos, tasks, completions, defaultMinutes)
         return ReminderPlanner.upcomingCourseReminders(now, zone, courses, exceptions, defaultMinutes) +
             ReminderPlanner.upcomingTodoReminders(now, todos, defaultMinutes) +
-            ReminderPlanner.upcomingTaskReminders(now, zone, tasks)
+            ReminderPlanner.upcomingTaskReminders(now, zone, tasks, completions)
     }
 
     companion object {

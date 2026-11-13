@@ -68,7 +68,7 @@ class SettingsRepository(private val context: Context) {
                 .toMutableList()
             order.add(0, k)
             while (order.size > 20) order.removeAt(order.size - 1)
-            prefs[searchHistoryKey] = set
+            prefs[searchHistoryKey] = order.toSet()
             prefs[searchHistoryOrderKey] = order.joinToString("\n")
         }
     }

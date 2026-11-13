@@ -9,8 +9,10 @@ enum class RepoCategory(val label: String, val short: String) {
     STUDY("学习资源", "学习"),
     BOOKS("电子书", "电子书"),
     BLOG("博客论坛", "博客"),
+    FORUM("论坛社区", "论坛"),
     DEV("编程开发", "开发"),
     SOFTWARE("软件下载", "软件"),
+    NETDISK("网盘资源", "网盘"),
     LIFE("生活服务", "生活"),
     MY_APK("我的 APK", "我的APK");
 

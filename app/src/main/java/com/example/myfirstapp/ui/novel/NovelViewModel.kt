@@ -4,15 +4,25 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myfirstapp.MyFirstApp
+import com.example.myfirstapp.data.bookstore.BookstoreCatalog
+import com.example.myfirstapp.data.bookstore.BookstoreData
 import com.example.myfirstapp.data.local.BookSourceEntity
 import com.example.myfirstapp.data.local.ShelfBookEntity
 import com.example.myfirstapp.domain.BookSearchResult
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.first
+import com.example.myfirstapp.domain.ShelfFilter
+import com.example.myfirstapp.domain.ShelfSort
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class NovelSearchState {
     data object Idle : NovelSearchState()
@@ -34,7 +44,32 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
     val searchHistory: StateFlow<List<String>> = settingsRepository.searchHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val query: StateFlow<String> = MutableStateFlow("")
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query
+    private val _shelfQuery = MutableStateFlow("")
+    val shelfQuery: StateFlow<String> = _shelfQuery
+    private val _shelfFilter = MutableStateFlow(ShelfFilter.ALL)
+    val shelfFilter: StateFlow<ShelfFilter> = _shelfFilter
+    private val _shelfSort = MutableStateFlow(ShelfSort.RECENT)
+    val shelfSort: StateFlow<ShelfSort> = _shelfSort
+    fun setShelfQuery(value: String) { _shelfQuery.value = value }
+    fun setShelfFilter(value: ShelfFilter) { _shelfFilter.value = value }
+    fun setShelfSort(value: ShelfSort) { _shelfSort.value = value }
+
+    /** 书库首页的分类卡 / 榜单 / 热搜词，来自 assets/bookstore_data.json */
+    private val _bookstore = MutableStateFlow<BookstoreData?>(null)
+    val bookstore: StateFlow<BookstoreData?> = _bookstore
+    private val _channel = MutableStateFlow("male")
+    val channel: StateFlow<String> = _channel
+    fun setChannel(value: String) { _channel.value = value }
+
+    init {
+        viewModelScope.launch {
+            _bookstore.value = withContext(Dispatchers.IO) {
+                BookstoreCatalog.load(getApplication())
+            }
+        }
+    }
 
     private val _searchState = MutableStateFlow<NovelSearchState>(NovelSearchState.Idle)
     val searchState: StateFlow<NovelSearchState> = _searchState
@@ -68,7 +103,13 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onQueryChange(text: String) {
-        (query as MutableStateFlow).value = text
+        _query.value = text
+    }
+
+    /** 书库页点书名 / 榜单 / 热词：直接带关键词搜索 */
+    fun searchWith(keyword: String) {
+        _query.value = keyword.trim()
+        search()
     }
 
     fun search() {
@@ -82,16 +123,18 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             _searchState.value = NovelSearchState.Loading
             // 记录进搜索历史（去重、最新在前）
             settingsRepository.recordSearchHistory(keyword)
-            val sourcesCount = sources.value.count { it.enabled }
+            val sourcesCount = repository.observeSources().first().count { it.enabled }.coerceAtMost(20)
             if (sourcesCount == 0) {
                 _searchState.value = NovelSearchState.Error("没有启用任何书源，先去「书源管理」导入")
                 return@launch
             }
             val results = runCatching { repository.search(keyword) }
                 .getOrElse { error ->
+                    if (error is CancellationException) throw error
                     _searchState.value = NovelSearchState.Error("搜索失败：${error.localizedMessage}")
                     return@launch
                 }
+            currentCoroutineContext().ensureActive()
             _searchState.value = if (results.isEmpty()) {
                 NovelSearchState.Error(
                     "在 $sourcesCount 个启用书源里没找到完全匹配的。" +

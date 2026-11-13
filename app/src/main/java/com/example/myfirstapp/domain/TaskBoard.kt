@@ -16,6 +16,7 @@ const val TASK_REPEAT_WEEKLY = 2
 
 /** 这条任务在给定的日期是否「出现」（即需要被安排/勾选） */
 fun TaskEntity.occursOn(date: LocalDate, zone: ZoneId): Boolean {
+    if (!hasDate) return !date.isBefore(java.time.Instant.ofEpochMilli(createdAtMillis).atZone(zone).toLocalDate())
     val anchorDate = Instant.ofEpochMilli(anchorAtEpochMillis).atZone(zone).toLocalDate()
     // 重复任务只在开始日期之后出现，不追溯创建之前的日期（否则本周视图会把任务显示在过去的几天上）
     if (date.isBefore(anchorDate)) return false
@@ -43,3 +44,13 @@ fun repeatLabel(repeatType: Int): String = when (repeatType) {
 /** 时长类型的中文标签 */
 fun durationLabel(durationType: Int): String =
     if (durationType == TASK_DURATION_LONG) "长任务" else "短任务"
+
+fun TaskEntity.isDoneOn(day: Long, doneMap: Map<Long, Set<Long>>): Boolean =
+    if (repeatType == TASK_REPEAT_ONCE) !doneMap[id].isNullOrEmpty()
+    else doneMap[id]?.contains(day) == true
+
+fun TaskEntity.visibleOn(date: LocalDate, zone: ZoneId, doneMap: Map<Long, Set<Long>>): Boolean =
+    if (!hasDate) date == LocalDate.now(zone) && (!isDoneOn(date.toEpochDay(), doneMap) || doneMap[id]?.contains(date.toEpochDay()) == true)
+    else occursOn(date, zone) || (hasDate && repeatType == TASK_REPEAT_ONCE &&
+        date == LocalDate.now(zone) && !isDoneOn(date.toEpochDay(), doneMap) &&
+        Instant.ofEpochMilli(anchorAtEpochMillis).atZone(zone).toLocalDate().isBefore(date))

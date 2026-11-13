@@ -63,7 +63,8 @@ fun GridTimetable(
 ) {
     if (slots.isEmpty()) return
 
-    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
+    val byDay = androidx.compose.runtime.remember(placed) { placed.groupBy { it.dayOfWeek } }
     val dark = isDarkColorScheme(MaterialTheme.colorScheme.surface)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -104,7 +105,7 @@ fun GridTimetable(
                     gridColor = gridColor
                 )
                 days.forEach { dayOfWeek ->
-                    val dayItems = placed.filter { it.dayOfWeek == dayOfWeek }
+                    val dayItems = byDay[dayOfWeek].orEmpty()
                     DayColumn(
                         slots = slots,
                         items = dayItems,

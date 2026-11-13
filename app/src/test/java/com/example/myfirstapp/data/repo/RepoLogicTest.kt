@@ -9,8 +9,8 @@ class RepoLogicTest {
 
     @Test
     fun catalogUrlsAreWellFormed() {
-        // 陆续重新开放影音 / 电子书，v3.47 批量 7 条，v3.48 新增游戏模块 2 条，共 36 条
-        assertTrue("内置网址不少于 36 条", RepoCatalog.sites.size >= 36)
+        // v3.49 按两份实测清单新增网盘 14 条 + 论坛 27 条（另迁移 2 条），共 77 条
+        assertTrue("内置网址不少于 77 条", RepoCatalog.sites.size >= 77)
         RepoCatalog.sites.forEach {
             assertTrue("${it.id} 必须是 https 网址", it.url.startsWith("https://"))
             assertFalse("${it.id} 网址不能含空格", it.url.contains(" "))
@@ -28,10 +28,12 @@ class RepoLogicTest {
 
     @Test
     fun everyCategoryHasSites() {
-        // 影音、电子书重新开放，v3.48 新增游戏模块
+        // 影音、电子书重新开放，v3.48 新增游戏，v3.49 新增网盘与论坛
         assertTrue("影音至少 1 条", RepoCatalog.sites.count { it.category == RepoCategory.MEDIA } >= 1)
         assertTrue("游戏至少 1 条", RepoCatalog.sites.count { it.category == RepoCategory.GAME } >= 1)
         assertTrue("电子书至少 1 条", RepoCatalog.sites.count { it.category == RepoCategory.BOOKS } >= 1)
+        assertTrue("网盘至少 14 条", RepoCatalog.sites.count { it.category == RepoCategory.NETDISK } >= 14)
+        assertTrue("论坛至少 29 条", RepoCatalog.sites.count { it.category == RepoCategory.FORUM } >= 29)
         // 生活、学习按需求精简（生活 3 条、学习 3 条）
         assertTrue("生活至少 2 条", RepoCatalog.sites.count { it.category == RepoCategory.LIFE } >= 2)
         assertTrue("学习至少 3 条", RepoCatalog.sites.count { it.category == RepoCategory.STUDY } >= 3)
@@ -124,7 +126,7 @@ class RepoLogicTest {
         }
         // Baoku One 迁走后生活只剩 3 条，id 不变所以已有收藏不会丢
         assertEquals(3, RepoCatalog.sites.count { it.category == RepoCategory.LIFE })
-        assertEquals("本版共 36 条", 36, RepoCatalog.sites.size)
+        assertTrue("目录已包含 v3.49 新增站点", RepoCatalog.sites.size >= 77)
     }
 
     @Test

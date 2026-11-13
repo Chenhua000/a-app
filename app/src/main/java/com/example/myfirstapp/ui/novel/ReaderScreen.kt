@@ -107,6 +107,7 @@ import com.example.myfirstapp.domain.ChapterContent
 import com.example.myfirstapp.ui.theme.minTouchTarget
 import com.example.myfirstapp.ui.theme.onColorFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -150,6 +151,8 @@ class ReaderViewModel(
 ) : AndroidViewModel(application) {
     private val repository = (application as MyFirstApp).container.bookRepository
 
+    var anchor by mutableIntStateOf(0)
+    private var loadJob: kotlinx.coroutines.Job? = null
     private val _book = MutableStateFlow<ShelfBookEntity?>(null)
     val book: StateFlow<ShelfBookEntity?> = _book
 
@@ -170,7 +173,8 @@ class ReaderViewModel(
      * 也不要先白屏转个圈再出现——那一下才是「卡顿感」的来源。
      */
     fun load(index: Int, force: Boolean, silent: Boolean = false) {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             if (!silent || _state.value !is ReaderContentState.Success) {
                 _state.value = ReaderContentState.Loading
             }
@@ -187,6 +191,7 @@ class ReaderViewModel(
             var chapters = _chapters.value.takeIf { it.isNotEmpty() }
                 ?: runCatching { repository.chapters(entity.sourceId, entity.bookUrl) }
                     .getOrDefault(emptyList())
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (chapters.isEmpty()) {
                 // 兜底：有些站点整本书内容就在书页本身（没有独立章节链接），
                 // 目录解析不到时，直接把书页当唯一一章去抓正文，避免「读不了」。
@@ -219,6 +224,7 @@ class ReaderViewModel(
             val result = runCatching {
                 repository.chapterContent(entity.sourceId, entity.bookUrl, chapter, force)
             }.getOrElse { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 _state.value = ReaderContentState.Error(
                     "第 ${effective + 1} 章加载失败（书源：${entity.sourceName}）：${error.localizedMessage}。" +
                         "可点「重试」，或去「书源」换一个源。"
@@ -227,9 +233,12 @@ class ReaderViewModel(
             }
             // 章号和正文一起换：否则会出现「新章标题 + 旧章正文」的一瞬，
             // 而且标题变了会立刻触发一次没必要的重新分页
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            anchor = if (index < 0 || (force && effective == entity.lastChapterIndex)) entity.lastChapterOffset else 0
+            repository.updateProgress(entity.id, effective, chapter.title)
+            repository.updateOffset(entity.id, effective, anchor)
             _index.value = effective
             _state.value = ReaderContentState.Success(result)
-            repository.updateProgress(entity.id, effective, chapter.title)
             prefetchNext(entity, chapters, effective)
         }
     }
@@ -275,9 +284,13 @@ class ReaderViewModel(
     fun persistProgress() {
         val entity = _book.value ?: return
         val current = _index.value
-        val title = _chapters.value.getOrNull(current)?.title
+        val title = _chapters.value.getOrNull(current)?.title ?: return
+        if (_state.value !is ReaderContentState.Success || current < 0) return
+        val offset = anchor
         viewModelScope.launch {
-            runCatching { repository.updateProgress(entity.id, current, title) }
+            runCatching {
+                repository.updateOffset(entity.id, current, offset)
+            }
         }
     }
 
@@ -316,14 +329,13 @@ fun ReaderScreen(
     val book by viewModel.book.collectAsStateWithLifecycle()
 
     // 阅读位置锚点：当前页首字符在本章里的偏移。换字号 / 换行距 / 重排后靠它跳回原处
-    var anchor by remember { mutableIntStateOf(0) }
+    var anchor by viewModel::anchor
     var pendingLastPage by remember { mutableStateOf(false) }
     // 仅当「正向」到达本章最后一页时才允许自动翻下一章；往回翻（上一章末页）不触发
     var reachedLastByForward by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(startIndex) {
-        anchor = 0
         pendingLastPage = false
         viewModel.load(startIndex, force = false)
     }
@@ -345,6 +357,13 @@ fun ReaderScreen(
         pendingLastPage = false
         reachedLastByForward = false
         viewModel.jumpTo(target)
+    }
+
+    LaunchedEffect(anchor, index, state) {
+        if (state is ReaderContentState.Success) {
+            delay(250)
+            viewModel.persistProgress()
+        }
     }
 
     // ---- 阅读偏好（本次会话内保留，切章不重置）----
