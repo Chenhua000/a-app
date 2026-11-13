@@ -78,6 +78,18 @@ class MyFirstApp : Application() {
             prefs.edit().putBoolean("legado_v1", true).apply()
         }
 
+        // 规则/搜索地址修正后的强制刷新：v3.55 起修复了原转换里的 {{{key}}} 三花括号、
+        // 相对地址没拼 baseUrl、|char=gbk 选项没剥离等问题（这些导致「一本都搜不到」）。
+        // 条数没变（仍 1744），单靠上面的 count 自愈不会触发重导，所以用数据版本号强制 upsert 一次。
+        val dataVer = 2
+        if (prefs.getInt("legado_data_ver", 0) < dataVer) {
+            val text = readLegadoAsset()
+            if (text != null) {
+                val n = runCatching { repo.importSources(text) }.getOrDefault(0)
+                if (n > 0) prefs.edit().putInt("legado_data_ver", dataVer).apply()
+            }
+        }
+
         // 全部启用（一次性迁移，兼顾老版本「导入即停用」的存量源）
         if (!prefs.getBoolean("legado_enable_all_v1", false)) {
             val enabled = runCatching { repo.enableAllBundledLegadoSources() }.getOrDefault(0)

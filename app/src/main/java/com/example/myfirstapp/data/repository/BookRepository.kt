@@ -90,38 +90,46 @@ class BookRepository(private val database: AppDatabase) {
             val sources = (if (preferred.isNotEmpty()) preferred else enabledSources).take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
+            // 同 quickSearch：不用 supervisorScope 干等全部源（阻塞 IO 取消不掉），
+            // 边收集边返回，最多等 15s 就把已经拿到的结果给出去，搜索页不会转圈转一分钟。
             val semaphore = Semaphore(24)
-            supervisorScope {
-                val tasks = sources.map { source ->
-                    async {
+            val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
+            val scope = CoroutineScope(io + SupervisorJob())
+            val collected: List<BookSearchResult> = try {
+                sources.forEach { source ->
+                    scope.launch {
                         semaphore.acquire()
                         try {
-                            withTimeoutOrNull(12_000) {
-                                runCatching { searchInSource(source, keyword) }
-                                    .onFailure {
-                                        if (it is kotlinx.coroutines.CancellationException) throw it
-                                    }
-                                    .getOrDefault(emptyList())
-                            } ?: emptyList()
+                            val got = runCatching { searchInSource(source, keyword) }
+                                .onFailure { if (it is CancellationException) throw it }
+                                .getOrDefault(emptyList())
+                            if (got.isNotEmpty()) channel.trySend(got)
                         } finally {
                             semaphore.release()
                         }
                     }
                 }
-                tasks.map { it.await() }
-                    .flatten()
-                    // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
-                    .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
-                    .distinctBy { it.dedupeKey }
-                    // 只按 title|author 去重挡不住「同一书源多个导航项指向同一个 /rank/」，
-                    // 必须再按 源+URL 去重，否则 LazyColumn 的 key 重复会直接闪退
-                    .distinctBy { it.sourceId + "|" + it.bookUrl }
-                    // 各源结果是「一段一段」拼起来的，按和关键词的匹配度整体重排：
-                    // 同名的书永远排最前，其次是关键词打头的
-                    .let { BookMatchRanking.rank(it, keyword) }
-                    // 书源规则失效时返回的是整页无关内容，只留和关键词沾边的结果
-                    .let { BookResultFilter.keepRelevant(it, keyword) }
+                val acc = mutableListOf<BookSearchResult>()
+                withTimeoutOrNull(15_000) {
+                    while (true) acc.addAll(channel.receive())
+                }
+                acc
+            } finally {
+                scope.cancel()
+                channel.close()
             }
+
+            collected
+                // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
+                .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
+                .distinctBy { it.dedupeKey }
+                // 只按 title|author 去重挡不住「同一书源多个导航项指向同一个 /rank/」，
+                // 必须再按 源+URL 去重，否则 LazyColumn 的 key 重复会直接闪退
+                .distinctBy { it.sourceId + "|" + it.bookUrl }
+                // 各源结果是「一段一段」拼起来的，按和关键词的匹配度整体重排
+                .let { BookMatchRanking.rank(it, keyword) }
+                // 书源规则失效时返回的是整页无关内容，只留和关键词沾边的结果
+                .let { BookResultFilter.keepRelevant(it, keyword) }
         }
 
     /**
@@ -242,7 +250,13 @@ class BookRepository(private val database: AppDatabase) {
             }.toMap()
             return@withContext HttpFetcher.post(url.trim(), form, source.charset)
         }
-        val url = raw.replace("{{key}}", encoded).replace("{key}", encoded)
+        // 兼容历史数据里的三花括号 {{{key}}}（会变成 {关键词} 导致服务器搜不到）；{{page}} 取第 1 页
+        val url = raw
+            .replace("{{{key}}}", "{{key}}")
+            .replace("{{{key}}", "{{key}}")
+            .replace("{{page}}", "1")
+            .replace("{{key}}", encoded)
+            .replace("{key}", encoded)
         return@withContext HttpFetcher.get(url, source.charset)
     }
 
