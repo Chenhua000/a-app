@@ -206,6 +206,9 @@ object HtmlRules {
         if (linkLen > text.length * 0.5) return false           // 链接太多 = 目录 / 推荐
         val noise = listOf("章节目录", "最新章节", "本书目录", "加入书架", "上一页", "下一页", "排行榜", "推荐票")
         if (noise.count { text.contains(it) } >= 3) return false
+        // 「如何下载小说 / RAR格式下载 / 全本TXT」这类下载说明页也不是正文
+        val download = listOf("如何下载小说", "格式下载", "全本TXT", "WINRAR", "下载地址", "请下载")
+        if (download.count { text.contains(it, ignoreCase = true) } >= 2) return false
         return true
     }
 

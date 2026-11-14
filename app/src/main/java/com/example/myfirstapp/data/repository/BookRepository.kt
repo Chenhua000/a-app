@@ -88,11 +88,15 @@ class BookRepository(private val database: AppDatabase) {
             // 只在**已启用**的源里搜（现在只启用笔趣阁原本开启的 654 条，跟笔趣阁一致）。
             // 「可用」组（纯 CSS、能真正解析）优先，其余已启用源垫后。
             val enabledSources = database.bookSourceDao().listSources().filter { it.enabled }
-            val usable = enabledSources.filter { it.groupName == "笔趣阁·可用" }
-            // 只搜「可用」源（纯 CSS、能真正解析的 206 个）：把并发槽位都花在能出结果的源上，
-            // 不浪费在 JS/POST/需登录 这些引擎根本跑不了的源上。
-            val sources = (if (usable.isNotEmpty()) usable else enabledSources).take(sourceLimit)
-            if (sources.isEmpty()) return@withContext emptyList()
+            // 不再按「笔趣阁·可用」分组筛源：那个标签是按「规则是否纯 CSS」打的，
+            // 把 239 个明明能正常发 GET 的启用源误杀了（笔趣阁是全都搜的）。
+            // 改按 searchUrl 形态判断：http + 含 {{key}} + 不含 JS 片段 → 约 445 个源都可搜。
+            val searchable = enabledSources.filter { s ->
+                val u = s.searchUrl
+                u.startsWith("http", true) && u.contains("{{key}}") &&
+                    !u.contains("@js") && !u.contains("<js>") && !u.contains("{{java.")
+            }
+            val sources = searchable.take(sourceLimit)
 
             fun clean(list: List<BookSearchResult>): List<BookSearchResult> {
                 val ranked = list
@@ -113,9 +117,24 @@ class BookRepository(private val database: AppDatabase) {
             val semaphore = Semaphore(64)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
-            val pending = java.util.concurrent.atomic.AtomicInteger(sources.size)
+            // +1 是云端聚合搜索任务；它不用 semaphore（只有一个请求）
+            val pending = java.util.concurrent.atomic.AtomicInteger(sources.size + 1)
             val acc = mutableListOf<BookSearchResult>()
             try {
+                // 笔趣阁「书城网络」用的阅文官方搜索接口：稳定、秒回、带作者和简介。
+                // 2023 年那批书源大量失效，这条云端兜底保证「随便搜都有结果」。
+                scope.launch {
+                    try {
+                        val got = cloudSearch(keyword)
+                        if (got.isNotEmpty()) {
+                            // 云端结果一返回就立刻显示，别等 20s 的书源搜索窗口结束
+                            runCatching { onPartial?.invoke(clean(got)) }
+                            channel.trySend(got)
+                        }
+                    } finally {
+                        if (pending.decrementAndGet() == 0) channel.close()
+                    }
+                }
                 sources.forEach { source ->
                     scope.launch {
                         semaphore.acquire()
@@ -155,6 +174,39 @@ class BookRepository(private val database: AppDatabase) {
         }
 
     /**
+     * 云端聚合搜索兜底：笔趣阁内置的「书城网络」源用的就是阅文官方搜索接口，
+     * 稳定、秒回、每本都带作者和简介。2023 年那批书源大量失效，靠它保证「随便搜都有」。
+     * 结果用虚拟源 id `cloud_qq`；点开后若读不出正文，会自动换源去找能读的同名书。
+     */
+    private suspend fun cloudSearch(keyword: String): List<BookSearchResult> = withContext(io) {
+        val url = "https://newopensearch.reader.qq.com/wechat?keyword=" +
+            URLEncoder.encode(keyword, "utf-8") + "&start=0&end=20"
+        val raw = runCatching {
+            HttpFetcher.withTimeouts(5_000, 8_000) { HttpFetcher.get(url, "utf-8") }
+        }.getOrDefault("")
+        if (raw.isBlank()) return@withContext emptyList()
+        val arr = runCatching { org.json.JSONObject(raw).optJSONArray("booklist") }
+            .getOrNull() ?: return@withContext emptyList()
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val title = o.optString("title").trim()
+            if (title.isBlank()) return@mapNotNull null
+            val bid = o.optString("bid")
+            val coverTail = bid.takeLast(3).trimStart('0').ifEmpty { "0" }
+            BookSearchResult(
+                sourceId = "cloud_qq",
+                sourceName = "阅文书城·云端",
+                title = title,
+                author = o.optString("author").trim(),
+                coverUrl = "http://wfqqreader-1252317822.image.myqcloud.com/cover/" +
+                    "$coverTail/$bid/b_$bid.jpg",
+                summary = o.optString("intro").trim(),
+                bookUrl = "http://pin.qq.com/lb/intro.html?bid=$bid&g_f=100021"
+            )
+        }
+    }
+
+    /**
      * 给搜索结果补简介：规则没给简介的条目，去书页抓 meta description / 简介容器补上。
      * 只补前几条、且有 6s 整体上限，避免把搜索拖太久。
      */
@@ -164,7 +216,7 @@ class BookRepository(private val database: AppDatabase) {
             .take(4)
         if (targets.isEmpty()) return list
         val map = java.util.concurrent.ConcurrentHashMap<String, String>()
-        withTimeoutOrNull(6_000) {
+        withTimeoutOrNull(3_000) {
             coroutineScope {
                 targets.forEach { r ->
                     launch {
@@ -376,6 +428,7 @@ class BookRepository(private val database: AppDatabase) {
         val url = raw
             .replace("{{{key}}}", "{{key}}")
             .replace("{{{key}}", "{{key}}")
+            .replace("{{page-1}}", "0")
             .replace("{{page}}", "1")
             .replace("{{key}}", encoded)
             .replace("{key}", encoded)
