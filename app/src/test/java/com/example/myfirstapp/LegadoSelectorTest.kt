@@ -151,4 +151,37 @@ class LegadoSelectorTest {
         assertTrue(content.contains("正文第一段"))
         assertTrue("不该取到侧边栏", !content.contains("目录"))
     }
+
+    @Test
+    fun contentFallbackPrefersRealTextOverLongChapterList() {
+        // 小说站常见结构：「最新章节列表」字比正文还多。旧实现取文字最多的 div 会选错。
+        val list = (1..40).joinToString("") { "<li><a href='/c/$it.html'>第${it}章 标题</a></li>" }
+        val body = (1..12).joinToString("") { "<p>这是正文第${it}段，李火旺在清风观里慢慢回过神来，四周静得可怕。</p>" }
+        val html = """
+            <html><body>
+              <div class="update-list"><ul>$list</ul></div>
+              <div id="content" class="showtxt">$body</div>
+            </body></html>
+        """.trimIndent()
+        val root = doc(html)
+        val content = HtmlRules.fallbackContent(
+            root,
+            com.example.myfirstapp.domain.ContentRule(selector = "")
+        )
+        assertTrue("应抽到真实正文", content.contains("李火旺"))
+        assertTrue("不该把最新章节列表当正文", !content.contains("第40章"))
+        assertTrue("抽出的内容应可信", HtmlRules.isPlausibleContent(content))
+    }
+
+    @Test
+    fun plausibleContentRejectsDirectoryAndShellPages() {
+        val realBody = (1..10).joinToString("") { "<p>正文段落$it，这是一段足够长的小说内容描写。</p>" }
+        assertTrue("正常正文应通过", HtmlRules.isPlausibleContent("<div id='content'>$realBody</div>"))
+        val directory = (1..30).joinToString("") { "<a href='/c/$it'>第${it}章 标题</a>" }
+        org.junit.Assert.assertFalse(
+            "章节目录页不该被当正文",
+            HtmlRules.isPlausibleContent("<div class='chapter-list'>$directory</div>")
+        )
+        org.junit.Assert.assertFalse("反爬空壳不该通过", HtmlRules.isPlausibleContent("<div>请稍后</div>"))
+    }
 }

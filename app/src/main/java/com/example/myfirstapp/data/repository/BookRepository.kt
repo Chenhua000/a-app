@@ -79,6 +79,7 @@ class BookRepository(private val database: AppDatabase) {
     suspend fun search(
         query: String,
         sourceLimit: Int = 1000,
+        windowMs: Long = 20_000,
         onPartial: ((List<BookSearchResult>) -> Unit)? = null
     ): List<BookSearchResult> =
         withContext(io) {
@@ -130,9 +131,9 @@ class BookRepository(private val database: AppDatabase) {
                     }
                 }
                 var lastEmit = 0L
-                withTimeoutOrNull(20_000) {
+                withTimeoutOrNull(windowMs) {
                     while (true) {
-                        // 全部源都结束（channel 被关闭）也会跳出，不必等满 20s
+                        // 全部源都结束（channel 被关闭）也会跳出，不必等满窗口
                         val res = channel.receiveCatching()
                         if (res.isClosed) break
                         val r = res.getOrNull() ?: continue
@@ -393,6 +394,20 @@ class BookRepository(private val database: AppDatabase) {
             SourceDiscoverer.discover(inputUrl.trim(), keyword)
         }
 
+    /** 把章节地址补成绝对地址；看起来根本不是链接（公告标题、纯文本）的返回 null */
+    private fun resolveChapterUrl(raw: String, pageUrl: String): String? {
+        val v = raw.trim()
+        if (v.isEmpty() || v.startsWith("javascript", true)) return null
+        if (v.startsWith("http", true) || v.startsWith("local://")) return v
+        if (v.startsWith("#")) return HtmlRules.resolveUrl(v, pageUrl)
+        // 纯标题常带书名号/中文标点，且没有路径特征 —— 直接丢
+        if (v.contains("《") || v.contains("》") || v.contains("！") || v.contains("，")) return null
+        val looksLikePath = v.contains("/") || v.contains(".htm") || v.contains("=") ||
+            v.all { it.isDigit() }
+        if (!looksLikePath) return null
+        return HtmlRules.resolveUrl(v, pageUrl).takeIf { it.startsWith("http", true) }
+    }
+
     /** 目录：优先用缓存，forceRefresh 时重新抓 */
     suspend fun chapters(
         sourceId: String,
@@ -402,9 +417,19 @@ class BookRepository(private val database: AppDatabase) {
         // 本地导入的书目录就在库里，不存在「联网重抓」这件事
         if (!forceRefresh || bookUrl.startsWith(LOCAL_BOOK_PREFIX)) {
             val cached = database.chapterIndexDao().listChapters(bookUrl)
+            // 旧版还会把「章节标题」当成地址缓存（如「第一章 床底。」），抓的时候报 no protocol。
+            // 只保留合法地址；一条都不合法就清掉重抓。
+            val valid = cached.filter {
+                it.url.startsWith("http", true) || it.url.startsWith("local://")
+            }
             // 旧版本兜底可能把「书详情页自身」当成唯一一章缓存，升级后自动失效重抓
-            if (cached.isNotEmpty() && (bookUrl.startsWith(LOCAL_BOOK_PREFIX) || !cachedIsBookPage(cached, bookUrl))) {
-                return@withContext cached.map { BookChapter(it.position, it.title, it.url) }
+            if (valid.isNotEmpty() &&
+                (bookUrl.startsWith(LOCAL_BOOK_PREFIX) || !cachedIsBookPage(valid, bookUrl))
+            ) {
+                return@withContext valid.map { BookChapter(it.position, it.title, it.url) }
+            }
+            if (cached.isNotEmpty() && valid.size != cached.size) {
+                database.chapterIndexDao().clear(bookUrl)
             }
         }
         if (bookUrl.startsWith(LOCAL_BOOK_PREFIX)) {
@@ -425,7 +450,12 @@ class BookRepository(private val database: AppDatabase) {
         // 书页抓取失败（站点打不开 / 超时 / 规则失效）时直接返回空目录，交由上层给出友好提示，
         // 不能把异常抛出去——上层 viewModelScope.launch 没兜住会直接闪退。
         var doc = try {
-            HtmlRules.parse(HttpFetcher.get(bookUrl, source.charset, sourceHeaders(source)), bookUrl)
+            HtmlRules.parse(
+                HttpFetcher.withTimeouts(6_000, 10_000) {
+                    HttpFetcher.get(bookUrl, source.charset, sourceHeaders(source))
+                },
+                bookUrl
+            )
         } catch (e: Exception) {
             android.util.Log.w("BookRepository", "目录页抓取失败 ${source.name}: ${e.message}")
             return@withContext emptyList()
@@ -436,7 +466,12 @@ class BookRepository(private val database: AppDatabase) {
                 pageUrl = entry
                 // 二级目录页抓不到时退回用第一页继续解析，而不是把异常抛出去
                 doc = try {
-                    HtmlRules.parse(HttpFetcher.get(entry, source.charset, sourceHeaders(source)), entry)
+                    HtmlRules.parse(
+                        HttpFetcher.withTimeouts(6_000, 10_000) {
+                            HttpFetcher.get(entry, source.charset, sourceHeaders(source))
+                        },
+                        entry
+                    )
                 } catch (e: Exception) {
                     android.util.Log.w("BookRepository", "目录二级页抓取失败 ${source.name}: ${e.message}")
                     doc
@@ -450,9 +485,11 @@ class BookRepository(private val database: AppDatabase) {
         elements.forEach { element ->
             val title = HtmlRules.firstText(element, toc.name, pageUrl).trim()
             // 链接相对「当前这一页」解析，页内锚点才会正确变成 页面地址#锚点
-            val url = HtmlRules.firstText(element, toc.url, pageUrl)
-            if (title.isEmpty() || url.isEmpty()) return@forEach
-            if (filter.isNotBlank() && !url.contains(filter)) return@forEach
+            val rawUrl = HtmlRules.firstText(element, toc.url, pageUrl)
+            // 规则失效时 toc.url 常抽出「站点公告标题」而不是链接（如「新书《捞尸人》，已发布！」），
+            // 拿去 HttpFetcher 就会报 no protocol。只接受像链接的地址。
+            val url = resolveChapterUrl(rawUrl, pageUrl) ?: return@forEach
+            if (title.isEmpty() || filter.isNotBlank() && !url.contains(filter)) return@forEach
             if (chapters.any { it.url == url }) return@forEach // 同页重复链接只保留一条
             chapters.add(BookChapter(chapters.size, title, url))
         }
@@ -466,7 +503,12 @@ class BookRepository(private val database: AppDatabase) {
                 .firstOrNull { it != bookUrl && it != pageUrl }
             if (directoryLink != null) {
                 runCatching {
-                    HtmlRules.parse(HttpFetcher.get(directoryLink, source.charset, sourceHeaders(source)), directoryLink)
+                    HtmlRules.parse(
+                        HttpFetcher.withTimeouts(6_000, 10_000) {
+                            HttpFetcher.get(directoryLink, source.charset, sourceHeaders(source))
+                        },
+                        directoryLink
+                    )
                 }.getOrNull()?.let {
                     targetDoc = it
                     targetUrl = directoryLink
@@ -523,7 +565,9 @@ class BookRepository(private val database: AppDatabase) {
         val baseUrl = if (hash >= 0) chapter.url.substring(0, hash) else chapter.url
         val anchorId = if (hash >= 0) chapter.url.substring(hash + 1) else null
 
-        val html = HttpFetcher.get(baseUrl, source.charset, sourceHeaders(source))
+        val html = HttpFetcher.withTimeouts(6_000, 12_000) {
+            HttpFetcher.get(baseUrl, source.charset, sourceHeaders(source))
+        }
         val doc = HtmlRules.parse(html, baseUrl)
         android.util.Log.d(
             "BookRepository",
@@ -538,9 +582,10 @@ class BookRepository(private val database: AppDatabase) {
                 .toSet()
             HtmlRules.extractContent(doc, rules.content, anchorId, siblings)
         }
-        if (content.isBlank()) throw IllegalStateException(
-            "源站返回的页面里没有正文（页面约 ${html.length} 字节），" +
-                "多半是站点反爬、需要浏览器验证，或书源规则已失效"
+        // 抽出来的东西必须像正文：目录页 / 书详情页 / 反爬空壳一律判失败，
+        // 既不缓存（否则一直显示错内容），也让阅读器的「自动换源」接手去找能读的源。
+        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) throw IllegalStateException(
+            "这个源没抓到可信正文（页面约 ${html.length} 字节，多半是反爬空壳或抽成了目录/详情页）"
         )
         database.chapterCacheDao().upsert(
             ChapterCacheEntity(
@@ -574,7 +619,10 @@ class BookRepository(private val database: AppDatabase) {
             .replace(Regex("<[^>]+>"), "")
             .replace("&nbsp;", " ")
             .replace(Regex("\\s+"), "")
-        return visible.length < 24 && content.length < 220
+        if (visible.length < 24 && content.length < 220) return true
+        // 旧版把「最新章节列表 / 书详情页」当正文缓存过：中短内容做一次可信度判定，
+        // 长正文（>4000）直接放行，避免误伤正常章节。
+        return content.length < 4000 && !HtmlRules.isPlausibleContent(content)
     }
 
     suspend fun clearOldCache(olderThanMillis: Long = System.currentTimeMillis() - 7 * 24 * 3600_000L) =
@@ -627,29 +675,34 @@ class BookRepository(private val database: AppDatabase) {
     suspend fun autoSwitchSource(book: ShelfBookEntity): Boolean = withContext(io) {
         val kw = book.title.trim().removeSurrounding("《", "》").trim()
         if (kw.isEmpty()) return@withContext false
-        val candidates = runCatching { search(kw) }
+        // 换源只是想快速找到「另一本同名书」，不用把 206 个源全跑一遍：60 个源 + 8s 窗口
+        val candidates = runCatching { search(kw, sourceLimit = 60, windowMs = 8_000) }
             .getOrDefault(emptyList())
             .filter { it.sourceId != book.sourceId }
             .distinctBy { it.sourceId }
-        for (c in candidates.take(6)) {
-            val ok = runCatching {
-                // 只认「章节地址是合法 http」的源；有些源目录解析出来是标题而不是链接，直接排除
-                val chs = chapters(c.sourceId, c.bookUrl).filter { it.url.startsWith("http", true) }
-                if (chs.size < 2) return@runCatching false
-                val cc = chapterContent(c.sourceId, c.bookUrl, chs.first(), forceRefresh = false)
-                cc.html.replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim().length > 30
-            }.getOrDefault(false)
-            if (ok) {
-                runCatching { database.chapterIndexDao().clear(book.bookUrl) }
-                runCatching { database.chapterCacheDao().clearBook(book.bookUrl) }
-                database.shelfBookDao().updateSource(
-                    book.id, c.sourceId, c.sourceName, c.bookUrl,
-                    c.coverUrl.takeIf { it.isNotBlank() }
-                )
-                return@withContext true
-            }
-        }
-        false
+        // 并行验证候选源：旧实现 6 个源串行 × 2 次请求，最坏要等一分钟。
+        // 现在同时验证，总耗时约等于「最慢的那一个」（短超时下 ~10s），先通过的先用。
+        val winner = coroutineScope {
+            candidates.take(6).map { c ->
+                async {
+                    val ok = runCatching {
+                        // 只认「章节地址是合法 http」的源；有些源把标题当成链接，直接排除
+                        val chs = chapters(c.sourceId, c.bookUrl).filter { it.url.startsWith("http", true) }
+                        if (chs.size < 2) return@runCatching false
+                        val cc = chapterContent(c.sourceId, c.bookUrl, chs.first(), forceRefresh = false)
+                        HtmlRules.isPlausibleContent(cc.html)
+                    }.getOrDefault(false)
+                    if (ok) c else null
+                }
+            }.mapNotNull { it.await() }.firstOrNull()
+        } ?: return@withContext false
+        runCatching { database.chapterIndexDao().clear(book.bookUrl) }
+        runCatching { database.chapterCacheDao().clearBook(book.bookUrl) }
+        database.shelfBookDao().updateSource(
+            book.id, winner.sourceId, winner.sourceName, winner.bookUrl,
+            winner.coverUrl.takeIf { it.isNotBlank() }
+        )
+        true
     }
 
     suspend fun book(id: Long): ShelfBookEntity? = withContext(io) { database.shelfBookDao().getBook(id) }

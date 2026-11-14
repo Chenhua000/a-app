@@ -132,35 +132,86 @@ object HtmlRules {
         return out
     }
 
+    /** class/id 里出现这些词，基本可以断定不是正文容器（目录 / 推荐 / 排行榜 / 导航） */
+    private val NON_CONTENT_HINT = listOf(
+        "nav", "header", "footer", "sidebar", "comment", "menu", "toolbar",
+        "list", "rank", "recommend", "update", "catalog", "directory", "related",
+        "hot", "banner", "share", "tag", "bookinfo", "meta", "tip"
+    )
+
+    /** class/id 里出现这些词，说明它很可能就是正文容器，给加分 */
+    private val CONTENT_HINT = listOf(
+        "content", "text", "chapter", "read", "article", "novel", "booktxt", "showtxt", "booktext"
+    )
+
     /**
-     * 书源 content 规则失效时的通用正文兜底：按常见正文容器选择器找，
-     * 都找不到就取正文字数最多的 div，再走同一套广告清洗。
+     * 给一个容器打「像正文」的分：纯文字越多、段落(<p>/<br>)越多越好；
+     * 链接越多越可能是目录/推荐列表，扣分；命中非正文关键词直接淘汰。
+     */
+    private fun contentScore(element: Element): Int {
+        val key = (element.id() + " " + element.className()).lowercase()
+        if (NON_CONTENT_HINT.any { key.contains(it) }) return -1
+        val links = element.select("a")
+        if (links.size > 30) return -1
+        val text = element.text().trim()
+        if (text.length < 60) return -1
+        // 整页外壳（含导航+目录+正文）文字极长，排除掉，逼着选更内层的容器
+        if (text.length > 20_000) return -1
+        val linkLen = links.sumOf { it.text().length }
+        val breaks = element.select("br").size + element.select("p").size
+        var score = (text.length - linkLen * 2).coerceAtLeast(0)
+        score += breaks * 60
+        if (CONTENT_HINT.any { key.contains(it) }) score += text.length / 2
+        return score
+    }
+
+    /**
+     * 书源 content 规则失效时的通用正文兜底。
+     * 旧实现取「文字最多的 div」，小说站的「最新章节列表 / 相关推荐」往往字更多，
+     * 结果把目录当正文塞给读者。现在改成全页打分挑最像正文的容器。
      */
     fun fallbackContent(doc: Document, rule: ContentRule): String {
-        val candidate = FALLBACK_CONTENT_SELECTORS.firstNotNullOfOrNull { selector ->
-            runCatching { doc.select(selector) }.getOrNull()
-                ?.firstOrNull { it.text().length > 60 && !looksLikeShell(it) }
-        } ?: runCatching {
-            doc.select("div")
-                .filterNot { looksLikeShell(it) }
-                .maxByOrNull { it.ownText().length }
-        }.getOrNull()?.takeIf { it.ownText().length > 80 }
+        val best = runCatching {
+            doc.select("div, article, section, main, td")
+                .map { it to contentScore(it) }
+                .filter { it.second > 0 }
+                .maxByOrNull { it.second }
+                ?.first
+        }.getOrNull()
+        val candidate = best
+        // 打分没结果时，退回常见正文选择器（并对候选也做一次校验，别把 content_tip 之类选进来）
+            ?: FALLBACK_CONTENT_SELECTORS.firstNotNullOfOrNull { selector ->
+                runCatching { doc.select(selector) }.getOrNull()
+                    ?.firstOrNull { it.text().length > 60 && !looksLikeShell(it) && contentScore(it) > 0 }
+            }
             // 最后一层：站点改版成没见过的结构时，至少把页面上可见的文字给出来。
-            // 但 301 / 403 / 404 这类错误页绝不能当正文显示（曾把 nginx 的
-            // 「301 Moved Permanently」整页当成小说正文）
+            // 但 301 / 403 / 404 这类错误页绝不能当正文显示
             ?: runCatching { doc.body() }.getOrNull()?.takeIf {
                 val text = it.text()
-                text.length > 20 && ERROR_PAGE_WORDS.none { w ->
-                    text.contains(w, ignoreCase = true)
-                }
+                text.length > 20 && ERROR_PAGE_WORDS.none { w -> text.contains(w, ignoreCase = true) }
             }
         return candidate?.let { cleanContainer(it, rule) } ?: ""
     }
 
+    /**
+     * 校验抽出来的「正文」是否可信。目录页 / 书详情页 / 推荐列表会被挡掉，
+     * 避免把垃圾缓存起来一直显示错的内容（显示错比加载慢更糟）。
+     */
+    fun isPlausibleContent(html: String): Boolean {
+        if (html.isBlank()) return false
+        val body = runCatching { parse(html, "").body() }.getOrNull() ?: return false
+        val text = body.text().trim()
+        if (text.length < 40) return false
+        val linkLen = runCatching { body.select("a").sumOf { it.text().length } }.getOrDefault(0)
+        if (linkLen > text.length * 0.5) return false           // 链接太多 = 目录 / 推荐
+        val noise = listOf("章节目录", "最新章节", "本书目录", "加入书架", "上一页", "下一页", "排行榜", "推荐票")
+        if (noise.count { text.contains(it) } >= 3) return false
+        return true
+    }
+
     private fun looksLikeShell(element: Element): Boolean {
         val key = (element.id() + " " + element.className()).lowercase()
-        return listOf("nav", "header", "footer", "sidebar", "comment", "menu", "toolbar")
-            .any { key.contains(it) }
+        return NON_CONTENT_HINT.take(7).any { key.contains(it) }
     }
 
     /**
