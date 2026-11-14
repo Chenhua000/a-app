@@ -126,7 +126,9 @@ data class BookSourceEntity(
     val groupName: String = "",
     /** 自检结果：null=未测, "ok"=能搜到书, "fail"=可达但搜不到/规则失效, "timeout"=连不上 */
     val lastStatus: String? = null,
-    val lastTestedAt: Long = 0
+    val lastTestedAt: Long = 0,
+    /** 书源自定义请求头（Legado 的 header 字段，JSON 字符串，如 {"Cookie":"...","User-Agent":"..."}） */
+    val header: String? = null
 )
 
 /** 书架里的一本书 */

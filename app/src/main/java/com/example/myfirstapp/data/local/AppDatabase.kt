@@ -41,7 +41,7 @@ class Converters {
         TaskEntity::class,
         TaskCompletionEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -72,6 +72,13 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE shelf_books ADD COLUMN favorited INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        /** v3.62：书源保留自定义请求头（Legado header），很多源没这个头会返回空/反爬 */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE book_sources ADD COLUMN header TEXT")
             }
         }
 

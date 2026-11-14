@@ -45,6 +45,20 @@ class BookRepository(private val database: AppDatabase) {
 
     private val io = Dispatchers.IO
 
+    /** 解析书源自定义请求头（Legado 的 header JSON 字符串），失败返回空 */
+    private fun sourceHeaders(source: BookSourceEntity): Map<String, String> {
+        val raw = source.header?.trim().orEmpty()
+        if (raw.isEmpty()) return emptyMap()
+        val obj = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        obj.keys().forEach { k ->
+            // 去掉换行，否则 HttpURLConnection.setRequestProperty 会抛 IllegalArgumentException
+            val v = obj.optString(k).replace("\r", "").replace("\n", "").trim()
+            if (v.isNotBlank()) out[k] = v
+        }
+        return out
+    }
+
     fun observeSources(): Flow<List<BookSourceEntity>> = database.bookSourceDao().observeSources()
 
     fun observeShelf(): Flow<List<ShelfBookEntity>> = database.shelfBookDao().observeBooks()
@@ -349,7 +363,7 @@ class BookRepository(private val database: AppDatabase) {
                 if (eq < 0) null else seg.substring(0, eq) to
                     seg.substring(eq + 1).replace("{{key}}", keyword)
             }.toMap()
-            return@withContext HttpFetcher.post(url.trim(), form, source.charset)
+            return@withContext HttpFetcher.post(url.trim(), form, source.charset, sourceHeaders(source))
         }
         // 兼容历史数据里的三花括号 {{{key}}}（会变成 {关键词} 导致服务器搜不到）；{{page}} 取第 1 页
         val url = raw
@@ -358,7 +372,7 @@ class BookRepository(private val database: AppDatabase) {
             .replace("{{page}}", "1")
             .replace("{{key}}", encoded)
             .replace("{key}", encoded)
-        return@withContext HttpFetcher.get(url, source.charset)
+        return@withContext HttpFetcher.get(url, source.charset, sourceHeaders(source))
     }
 
     /**
@@ -403,7 +417,7 @@ class BookRepository(private val database: AppDatabase) {
         // 书页抓取失败（站点打不开 / 超时 / 规则失效）时直接返回空目录，交由上层给出友好提示，
         // 不能把异常抛出去——上层 viewModelScope.launch 没兜住会直接闪退。
         var doc = try {
-            HtmlRules.parse(HttpFetcher.get(bookUrl, source.charset), bookUrl)
+            HtmlRules.parse(HttpFetcher.get(bookUrl, source.charset, sourceHeaders(source)), bookUrl)
         } catch (e: Exception) {
             android.util.Log.w("BookRepository", "目录页抓取失败 ${source.name}: ${e.message}")
             return@withContext emptyList()
@@ -414,7 +428,7 @@ class BookRepository(private val database: AppDatabase) {
                 pageUrl = entry
                 // 二级目录页抓不到时退回用第一页继续解析，而不是把异常抛出去
                 doc = try {
-                    HtmlRules.parse(HttpFetcher.get(entry, source.charset), entry)
+                    HtmlRules.parse(HttpFetcher.get(entry, source.charset, sourceHeaders(source)), entry)
                 } catch (e: Exception) {
                     android.util.Log.w("BookRepository", "目录二级页抓取失败 ${source.name}: ${e.message}")
                     doc
@@ -444,7 +458,7 @@ class BookRepository(private val database: AppDatabase) {
                 .firstOrNull { it != bookUrl && it != pageUrl }
             if (directoryLink != null) {
                 runCatching {
-                    HtmlRules.parse(HttpFetcher.get(directoryLink, source.charset), directoryLink)
+                    HtmlRules.parse(HttpFetcher.get(directoryLink, source.charset, sourceHeaders(source)), directoryLink)
                 }.getOrNull()?.let {
                     targetDoc = it
                     targetUrl = directoryLink
@@ -501,7 +515,7 @@ class BookRepository(private val database: AppDatabase) {
         val baseUrl = if (hash >= 0) chapter.url.substring(0, hash) else chapter.url
         val anchorId = if (hash >= 0) chapter.url.substring(hash + 1) else null
 
-        val html = HttpFetcher.get(baseUrl, source.charset)
+        val html = HttpFetcher.get(baseUrl, source.charset, sourceHeaders(source))
         val doc = HtmlRules.parse(html, baseUrl)
         android.util.Log.d(
             "BookRepository",
@@ -777,7 +791,8 @@ class BookRepository(private val database: AppDatabase) {
             enabled = json.optBoolean("enabled", true),
             builtIn = builtIn,
             sortOrder = json.optInt("sortOrder", 100),
-            groupName = json.optString("group").trim()
+            groupName = json.optString("group").trim(),
+            header = json.optString("header").takeIf { it.isNotBlank() }
         )
         database.bookSourceDao().upsert(entity)
         return true

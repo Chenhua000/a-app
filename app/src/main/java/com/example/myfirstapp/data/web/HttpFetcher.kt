@@ -104,6 +104,36 @@ object HttpFetcher {
         return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }
 
+    // ── 简易 CookieJar：模仿 Legado 的 enabledCookieJar，按 host 存/回传 Cookie ──
+    private val cookieStore =
+        java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>()
+
+    private fun hostKey(url: String): String =
+        runCatching { java.net.URI(url).host ?: "" }.getOrDefault("").lowercase()
+
+    private fun cookieFor(host: String): String? {
+        if (host.isBlank()) return null
+        val jar = cookieStore[host] ?: return null
+        if (jar.isEmpty()) return null
+        return jar.entries.joinToString("; ") { "${it.key}=${it.value}" }
+    }
+
+    private fun captureCookies(connection: HttpURLConnection, host: String) {
+        if (host.isBlank()) return
+        val sets = runCatching {
+            connection.headerFields.entries
+                .filter { it.key?.equals("Set-Cookie", ignoreCase = true) == true }
+                .flatMap { it.value ?: emptyList() }
+        }.getOrDefault(emptyList())
+        if (sets.isEmpty()) return
+        val jar = cookieStore.getOrPut(host) { java.util.concurrent.ConcurrentHashMap() }
+        sets.forEach { raw ->
+            val nv = raw.substringBefore(';').trim()
+            val eq = nv.indexOf('=')
+            if (eq > 0) runCatching { jar[nv.substring(0, eq).trim()] = nv.substring(eq + 1).trim() }
+        }
+    }
+
     fun getBytes(url: String, headers: Map<String, String> = emptyMap()): ByteArray =
         getBytesFollowingRedirect(url, headers, 0)
 
@@ -135,7 +165,12 @@ object HttpFetcher {
                 setRequestProperty("Referer", url)
                 headers.forEach { (key, value) -> setRequestProperty(key, value) }
             }
+            val host = hostKey(url)
+            if (headers.keys.none { it.equals("Cookie", ignoreCase = true) }) {
+                cookieFor(host)?.let { connection.setRequestProperty("Cookie", it) }
+            }
             val code = connection.responseCode
+            captureCookies(connection, host)
             if (code in 300..399 && depth < 5) {
                 val location = connection.getHeaderField("Location")
                 if (!location.isNullOrBlank()) {
@@ -182,8 +217,14 @@ object HttpFetcher {
                 setRequestProperty("Content-Length", bodyBytes.size.toString())
                 headers.forEach { (key, value) -> setRequestProperty(key, value) }
             }
+            val host = hostKey(url)
+            if (headers.keys.none { it.equals("Cookie", ignoreCase = true) }) {
+                cookieFor(host)?.let { connection.setRequestProperty("Cookie", it) }
+            }
             connection.outputStream.use { it.write(bodyBytes) }
-            readBody(connection)
+            val respBody = readBody(connection)
+            captureCookies(connection, host)
+            respBody
         } finally {
             connection?.disconnect()
         }

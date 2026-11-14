@@ -84,7 +84,7 @@ class MyFirstApp : Application() {
         // v3.59：按原始 `enabled` 标志重导——只启用笔趣阁原本开启的 654 条（其余 1090 条保持关闭）。
         // 以前把 1744 条全启用、又固定搜「可用」组按名字前 60 个，结果搜的全是坏源（60 个里仅 9 个好源），
         // 所以「源一堆却一本搜不到」。现在只启用精选 654 条，跟笔趣阁一致。
-        val dataVer = 5
+        val dataVer = 6
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {
@@ -114,7 +114,7 @@ class AppContainer(private val context: android.content.Context) {
         AppDatabase::class.java,
         "campus_assistant.db"
     )
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10)
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11)
         .addCallback(
             object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {
