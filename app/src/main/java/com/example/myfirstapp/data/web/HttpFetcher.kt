@@ -16,6 +16,21 @@ object HttpFetcher {
     private const val CONNECT_TIMEOUT = 12_000
     private const val READ_TIMEOUT = 20_000
 
+    // 允许「搜索」这种批量场景临时用更短的超时（快速失败，多跑几个源），不影响正文抓取的宽松超时
+    private val tlConnect = ThreadLocal<Int>()
+    private val tlRead = ThreadLocal<Int>()
+    private fun ct(): Int = tlConnect.get() ?: CONNECT_TIMEOUT
+    private fun rt(): Int = tlRead.get() ?: READ_TIMEOUT
+
+    fun <T> withTimeouts(connectMs: Int, readMs: Int, block: () -> T): T {
+        tlConnect.set(connectMs); tlRead.set(readMs)
+        return try {
+            block()
+        } finally {
+            tlConnect.remove(); tlRead.remove()
+        }
+    }
+
     /** 直接拿到解码后的字符串，自动识别 GBK / UTF-8 等中文站点常用编码 */
     fun get(
         url: String,
@@ -156,8 +171,8 @@ object HttpFetcher {
             connection.apply {
                 requestMethod = "GET"
                 instanceFollowRedirects = false
-                connectTimeout = CONNECT_TIMEOUT
-                readTimeout = READ_TIMEOUT
+                connectTimeout = ct()
+                readTimeout = rt()
                 setRequestProperty("User-Agent", DEFAULT_USER_AGENT)
                 setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.9")
                 setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
@@ -206,8 +221,8 @@ object HttpFetcher {
             connection.apply {
                 requestMethod = "POST"
                 instanceFollowRedirects = true
-                connectTimeout = CONNECT_TIMEOUT
-                readTimeout = READ_TIMEOUT
+                connectTimeout = ct()
+                readTimeout = rt()
                 doOutput = true
                 setRequestProperty("User-Agent", DEFAULT_USER_AGENT)
                 setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.9")

@@ -725,12 +725,14 @@ private fun SearchResultRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-            } else if (result.sourceName.isNotBlank()) {
+            }
+            // 同一本书会列出多个源，来源必须显示，方便挑能读的那个
+            if (result.sourceName.isNotBlank()) {
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = "来源：${result.sourceName}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

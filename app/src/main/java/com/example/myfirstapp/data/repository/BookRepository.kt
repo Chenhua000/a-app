@@ -88,24 +88,28 @@ class BookRepository(private val database: AppDatabase) {
             // 「可用」组（纯 CSS、能真正解析）优先，其余已启用源垫后。
             val enabledSources = database.bookSourceDao().listSources().filter { it.enabled }
             val usable = enabledSources.filter { it.groupName == "笔趣阁·可用" }
-            val ordered = if (usable.isNotEmpty()) {
-                usable + enabledSources.filterNot { it.groupName == "笔趣阁·可用" }
-            } else enabledSources
-            val sources = ordered.take(sourceLimit)
+            // 只搜「可用」源（纯 CSS、能真正解析的 206 个）：把并发槽位都花在能出结果的源上，
+            // 不浪费在 JS/POST/需登录 这些引擎根本跑不了的源上。
+            val sources = (if (usable.isNotEmpty()) usable else enabledSources).take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
-            fun clean(list: List<BookSearchResult>): List<BookSearchResult> = list
-                // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
-                .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
-                .distinctBy { it.dedupeKey }
-                // 同一书源多个导航项指向同一个 /rank/ 也要去重，否则 LazyColumn key 重复会闪退
-                .distinctBy { it.sourceId + "|" + it.bookUrl }
-                .let { BookMatchRanking.rank(it, keyword) }
-                .let { BookResultFilter.keepRelevant(it, keyword) }
+            fun clean(list: List<BookSearchResult>): List<BookSearchResult> {
+                val ranked = list
+                    // 规则过宽的书源会把站点导航栏当书返回，先统一挡掉
+                    .filterNot { BookResultFilter.isNavigation(it.title, it.bookUrl) }
+                    // 只按「源+URL」去重（同一条结果别重复）。
+                    // 千万不要按 title|author 去重：那会把同一本书在几十个源里的条目全删成 1 条，
+                    // 笔趣阁正是把多源都列出来供挑源，尘剑之前「才搜到几个、还全是坏源」就栽在这里。
+                    .distinctBy { it.sourceId + "|" + it.bookUrl }
+                    .let { BookMatchRanking.rank(it, keyword) }
+                    .let { BookResultFilter.keepRelevant(it, keyword) }
+                // 同一本书保留多个源（最多 12 个，避免刷屏），按书名分组展示
+                return ranked.groupBy { it.dedupeKey }.values.flatMap { it.take(12) }
+            }
 
             // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
-            // 第一条结果出来几百毫秒就能显示，整体最多 8s 就收尾，搜索页不再「转圈半天」。
-            val semaphore = Semaphore(32)
+            // 第一条结果出来几百毫秒就能显示；并发 64 + 搜索短超时，让 206 个源都能轮到。
+            val semaphore = Semaphore(64)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
             val pending = java.util.concurrent.atomic.AtomicInteger(sources.size)
@@ -363,7 +367,9 @@ class BookRepository(private val database: AppDatabase) {
                 if (eq < 0) null else seg.substring(0, eq) to
                     seg.substring(eq + 1).replace("{{key}}", keyword)
             }.toMap()
-            return@withContext HttpFetcher.post(url.trim(), form, source.charset, sourceHeaders(source))
+            return@withContext HttpFetcher.withTimeouts(6_000, 8_000) {
+                HttpFetcher.post(url.trim(), form, source.charset, sourceHeaders(source))
+            }
         }
         // 兼容历史数据里的三花括号 {{{key}}}（会变成 {关键词} 导致服务器搜不到）；{{page}} 取第 1 页
         val url = raw
@@ -372,7 +378,9 @@ class BookRepository(private val database: AppDatabase) {
             .replace("{{page}}", "1")
             .replace("{{key}}", encoded)
             .replace("{key}", encoded)
-        return@withContext HttpFetcher.get(url, source.charset, sourceHeaders(source))
+        return@withContext HttpFetcher.withTimeouts(6_000, 8_000) {
+            HttpFetcher.get(url, source.charset, sourceHeaders(source))
+        }
     }
 
     /**
