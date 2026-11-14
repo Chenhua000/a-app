@@ -716,6 +716,25 @@ private fun SearchResultRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (result.summary.isNotBlank()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = result.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else if (result.sourceName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "来源：${result.sourceName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         IconButton(onClick = { onAddToShelf(result) }) {
             Icon(Icons.Default.Add, contentDescription = "加入书架", tint = MaterialTheme.colorScheme.primary)

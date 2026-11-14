@@ -220,6 +220,14 @@ interface ShelfBookDao {
     @Query("UPDATE shelf_books SET lastChapterOffset = :offset WHERE id = :id AND lastChapterIndex = :index")
     suspend fun updateOffset(id: Long, index: Int, offset: Int)
 
+    /** 自动换源：把这本书记录切到另一个书源（目录/正文地址都换），进度清零重来 */
+    @Query(
+        "UPDATE shelf_books SET sourceId = :sourceId, sourceName = :sourceName, bookUrl = :bookUrl, " +
+            "lastChapterIndex = 0, lastChapterTitle = NULL, lastChapterOffset = 0, " +
+            "coverUrl = COALESCE(:coverUrl, coverUrl) WHERE id = :id"
+    )
+    suspend fun updateSource(id: Long, sourceId: String, sourceName: String, bookUrl: String, coverUrl: String?)
+
 }
 
 @Dao

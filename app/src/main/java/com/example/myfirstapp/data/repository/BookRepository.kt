@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -129,10 +130,60 @@ class BookRepository(private val database: AppDatabase) {
                 scope.cancel()
                 channel.close()
             }
-            val finalResult = clean(acc)
+            val finalResult = enrichSummaries(clean(acc))
             onPartial?.invoke(finalResult)
             finalResult
         }
+
+    /**
+     * 给搜索结果补简介：规则没给简介的条目，去书页抓 meta description / 简介容器补上。
+     * 只补前几条、且有 6s 整体上限，避免把搜索拖太久。
+     */
+    private suspend fun enrichSummaries(list: List<BookSearchResult>): List<BookSearchResult> {
+        val targets = list.filterIndexed { i, r -> i < 10 && r.summary.isBlank() }
+            .distinctBy { it.bookUrl }
+            .take(4)
+        if (targets.isEmpty()) return list
+        val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+        withTimeoutOrNull(6_000) {
+            coroutineScope {
+                targets.forEach { r ->
+                    launch {
+                        val s = runCatching { fetchIntro(r.bookUrl) }.getOrDefault("")
+                        if (s.isNotBlank()) map[r.bookUrl] = s
+                    }
+                }
+            }
+        }
+        if (map.isEmpty()) return list
+        return list.map { r -> map[r.bookUrl]?.let { r.copy(summary = it) } ?: r }
+    }
+
+    private suspend fun fetchIntro(bookUrl: String): String = withContext(io) {
+        val html = runCatching { HttpFetcher.get(bookUrl, "utf-8") }.getOrDefault("")
+        extractIntro(html)
+    }
+
+    /** 从书页里抽简介：优先 meta description，其次常见简介容器 */
+    private fun extractIntro(html: String): String {
+        if (html.isBlank()) return ""
+        val doc = runCatching { HtmlRules.parse(html, "") }.getOrNull() ?: return ""
+        val meta = runCatching {
+            doc.selectFirst("meta[name=description]")?.attr("content")?.trim().orEmpty()
+        }.getOrDefault("")
+        if (meta.length in 20..600 && !meta.contains("访问") && !meta.contains("验证")) return meta
+        val selectors = listOf(
+            "#intro", ".intro", "#bookIntro", ".book-intro", ".bookintro", "#intro1",
+            ".book_desc", ".book-desc", ".description", ".desc", "#desc", ".summary",
+            ".book-summary", "#content", ".content", "[class*=intro]", "[id*=intro]",
+            "[class*=desc]", "[id*=desc]"
+        )
+        for (s in selectors) {
+            val t = runCatching { doc.selectFirst(s)?.text()?.trim().orEmpty() }.getOrDefault("")
+            if (t.length in 20..800) return t.take(300)
+        }
+        return ""
+    }
 
     /**
      * 「立即阅读」专用搜索：不依赖用户是否手动启用书源。
@@ -545,6 +596,38 @@ class BookRepository(private val database: AppDatabase) {
     /** 某本书是否已收藏进书架（按 bookUrl 查） */
     suspend fun isFavorited(bookUrl: String): Boolean = withContext(io) {
         database.shelfBookDao().getByUrl(bookUrl)?.favorited == true
+    }
+
+    /**
+     * 自动换源：当前源读不出正文时，按书名去其它源找同一本，**验证能拿到正文**后切过去。
+     * 成功返回 true（书架条目已改源，旧目录/正文缓存已清）。
+     */
+    suspend fun autoSwitchSource(book: ShelfBookEntity): Boolean = withContext(io) {
+        val kw = book.title.trim().removeSurrounding("《", "》").trim()
+        if (kw.isEmpty()) return@withContext false
+        val candidates = runCatching { search(kw) }
+            .getOrDefault(emptyList())
+            .filter { it.sourceId != book.sourceId }
+            .distinctBy { it.sourceId }
+        for (c in candidates.take(6)) {
+            val ok = runCatching {
+                // 只认「章节地址是合法 http」的源；有些源目录解析出来是标题而不是链接，直接排除
+                val chs = chapters(c.sourceId, c.bookUrl).filter { it.url.startsWith("http", true) }
+                if (chs.size < 2) return@runCatching false
+                val cc = chapterContent(c.sourceId, c.bookUrl, chs.first(), forceRefresh = false)
+                cc.html.replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim().length > 30
+            }.getOrDefault(false)
+            if (ok) {
+                runCatching { database.chapterIndexDao().clear(book.bookUrl) }
+                runCatching { database.chapterCacheDao().clearBook(book.bookUrl) }
+                database.shelfBookDao().updateSource(
+                    book.id, c.sourceId, c.sourceName, c.bookUrl,
+                    c.coverUrl.takeIf { it.isNotBlank() }
+                )
+                return@withContext true
+            }
+        }
+        false
     }
 
     suspend fun book(id: Long): ShelfBookEntity? = withContext(io) { database.shelfBookDao().getBook(id) }

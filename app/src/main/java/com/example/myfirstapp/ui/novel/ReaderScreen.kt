@@ -153,6 +153,8 @@ class ReaderViewModel(
 
     var anchor by mutableIntStateOf(0)
     private var loadJob: kotlinx.coroutines.Job? = null
+    // 每次打开这本书只自动换源一次，避免在坏源之间来回跳
+    private var autoSwitchTried = false
     private val _book = MutableStateFlow<ShelfBookEntity?>(null)
     val book: StateFlow<ShelfBookEntity?> = _book
 
@@ -208,9 +210,19 @@ class ReaderViewModel(
                     // 「读到第 20 章」cover 成 0，下次打开只能从第 1 章重来。
                     return@launch
                 }
+                // 目录都抓不到：自动换源试一次（找一个能读到正文的源）
+                if (!autoSwitchTried) {
+                    autoSwitchTried = true
+                    val switched = runCatching { repository.autoSwitchSource(entity) }.getOrDefault(false)
+                    if (switched) {
+                        _state.value = ReaderContentState.Loading
+                        viewModelScope.launch { load(index, force = true) }
+                        return@launch
+                    }
+                }
                 _state.value = ReaderContentState.Error(
                     "目录抓取为空。多半是「${entity.sourceName}」这个书源站点打不开或规则已失效。" +
-                        "可以去「书源」里切换 / 导入其它书源后再读。"
+                        "已自动换源也没找到可读的源，可去「书源」再启用一些源。"
                 )
                 return@launch
             }
@@ -225,9 +237,19 @@ class ReaderViewModel(
                 repository.chapterContent(entity.sourceId, entity.bookUrl, chapter, force)
             }.getOrElse { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
+                // 这一章没正文（反爬/空壳/规则失效）：自动换到一个能读到正文的源再重载
+                if (!autoSwitchTried) {
+                    autoSwitchTried = true
+                    val switched = runCatching { repository.autoSwitchSource(entity) }.getOrDefault(false)
+                    if (switched) {
+                        _state.value = ReaderContentState.Loading
+                        viewModelScope.launch { load(index, force = true) }
+                        return@launch
+                    }
+                }
                 _state.value = ReaderContentState.Error(
                     "第 ${effective + 1} 章加载失败（书源：${entity.sourceName}）：${error.localizedMessage}。" +
-                        "可点「重试」，或去「书源」换一个源。"
+                        "已尝试自动换源仍无正文，可去「书源」再启用其它源。"
                 )
                 return@launch
             }
