@@ -7,6 +7,7 @@ import com.example.myfirstapp.data.local.ChapterCacheEntity
 import com.example.myfirstapp.data.local.ChapterIndexEntity
 import com.example.myfirstapp.data.local.ShelfBookEntity
 import com.example.myfirstapp.data.web.HttpFetcher
+import com.example.myfirstapp.data.web.JsSandbox
 import com.example.myfirstapp.data.web.SourceDiscoverer
 import com.example.myfirstapp.domain.BookChapter
 import com.example.myfirstapp.domain.BookMatchRanking
@@ -41,7 +42,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 本地导入书籍的地址前缀（不是网址，只是用来区分「不需要联网的书」） */
 const val LOCAL_BOOK_PREFIX = "local://"
 
-class BookRepository(private val database: AppDatabase) {
+class BookRepository(
+    private val database: AppDatabase,
+    private val appContext: android.content.Context? = null
+) {
 
     private val io = Dispatchers.IO
 
@@ -637,7 +641,24 @@ class BookRepository(private val database: AppDatabase) {
         var html = fetchPage(baseUrl)
         var doc = HtmlRules.parse(html, baseUrl)
         android.util.Log.d("BookRepository", "正文页 $baseUrl html=${html.length}字 可见文本=${doc.text().length}字")
-        var content = extractFrom(html, baseUrl)
+
+        // ① 书源带 JS 正文规则、且是「纯字符串处理」类：先让 WebView 沙箱跑一遍。
+        //    依赖 java.* / JSONPath 的规则跑不了，会跳过、退回 CSS（不影响主流程）。
+        var content = ""
+        val jsRule = rules.content.jsContent
+        if (jsRule.isNotBlank() && JsSandbox.isExecutable(jsRule) && appContext != null) {
+            val script = JsSandbox.extractScript(jsRule)
+            val out = runCatching { JsSandbox.eval(appContext, script, html) }.getOrNull()
+            if (!out.isNullOrBlank()) {
+                val wrapped = if (out.contains("<")) out else "<div>" + out.replace("\n", "<br>") + "</div>"
+                if (HtmlRules.isPlausibleContent(wrapped)) {
+                    content = out
+                    android.util.Log.d("BookRepository", "JS 规则抽到正文 ${out.length} 字")
+                }
+            }
+        }
+        // ② 常规 CSS 抽取
+        if (content.isBlank()) content = extractFrom(html, baseUrl)
 
         // 正文分页：笔趣阁（Legado）靠 nextContentUrl / ruleContentUrlNext 把一章的多页拼起来，
         // 尘剑此前只抓第一页，所以「内容缺一大半、排版不对」。现在补上自动翻页拼接。

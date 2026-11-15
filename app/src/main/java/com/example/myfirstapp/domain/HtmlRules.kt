@@ -287,11 +287,33 @@ object HtmlRules {
             }
             copy.select("[style]").forEach { it.removeAttr("style") }
             copy.select("[onclick]").forEach { it.removeAttr("onclick") }
+            applyImageStyle(copy, rule.imageStyle)
             var html = copy.html()
             rule.replace.forEach { pair ->
                 html = runCatching { html.replace(Regex(pair.from), pair.to) }.getOrDefault(html)
             }
             return cleanText(html)
+        }
+    }
+
+    /**
+     * 正文图片处理（对应 Legado 的 imageStyle）。
+     * 阅读器目前按纯文本分页排版，所以图片统一转成它的 alt/title 文字，避免出现 [obj] 占位：
+     *  - FULL        → 独占一行（<p>）
+     *  - TEXT / 其他 → 内联文字（<span>）
+     *  - 没有 alt    → 直接去掉
+     */
+    private fun applyImageStyle(root: Element, style: String) {
+        val imgs = runCatching { root.select("img") }.getOrNull() ?: return
+        imgs.forEach { img ->
+            val alt = img.attr("alt").ifBlank { img.attr("title") }.trim()
+            if (alt.isEmpty()) {
+                img.remove()
+            } else if (style.equals("FULL", ignoreCase = true)) {
+                img.replaceWith(Element("p").also { it.appendText(alt) })
+            } else {
+                img.replaceWith(Element("span").also { it.appendText(alt) })
+            }
         }
     }
 

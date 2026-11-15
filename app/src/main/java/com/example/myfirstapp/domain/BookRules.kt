@@ -41,7 +41,12 @@ data class ContentRule(
     val replace: List<ReplacePair> = emptyList(),
     /** 正文分页「下一页」规则（Legado 的 nextContentUrl / ruleContentUrlNext）。
      *  很多站一章拆成 2~3 页，没有它就只能读到第一页。 */
-    val nextContentUrl: String = ""
+    val nextContentUrl: String = "",
+    /** 原始 JS 正文规则（`@js:...` / `<js>...</js>`）。纯字符串处理的可以在 WebView 沙箱里跑，
+     *  依赖 java.* / JSONPath 的跑不了，会优雅降级到 CSS 抽取。 */
+    val jsContent: String = "",
+    /** 正文图片样式（Legado 的 imageStyle）：TEXT=用 alt 文字、FULL=独占一行、0/DEFAULT=去掉 */
+    val imageStyle: String = ""
 )
 
 data class BookRules(
@@ -73,6 +78,8 @@ object BookRulesCodec {
         root.put("content", JSONObject().apply {
             put("selector", rules.content.selector)
             put("nextContentUrl", rules.content.nextContentUrl)
+            if (rules.content.jsContent.isNotBlank()) put("jsContent", rules.content.jsContent)
+            if (rules.content.imageStyle.isNotBlank()) put("imageStyle", rules.content.imageStyle)
             put("remove", JSONArray(rules.content.remove))
             put(
                 "replace",
@@ -115,7 +122,9 @@ object BookRulesCodec {
                     selector = content.optString("selector", ""),
                     remove = stringList(content.optJSONArray("remove")),
                     replace = replaceList(content.optJSONArray("replace")),
-                    nextContentUrl = content.optString("nextContentUrl", "")
+                    nextContentUrl = content.optString("nextContentUrl", ""),
+                    jsContent = content.optString("jsContent", ""),
+                    imageStyle = content.optString("imageStyle", "")
                 )
             } ?: ContentRule()
         )

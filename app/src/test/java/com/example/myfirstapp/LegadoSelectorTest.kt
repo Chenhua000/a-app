@@ -205,6 +205,26 @@ class LegadoSelectorTest {
     }
 
     @Test
+    fun imageStyleTurnsImagesIntoAltText() {
+        val html = "<div id='content'><p>正文第一段。</p>" +
+            "<img alt='插图一' src='a.jpg'><img src='b.jpg'></div>"
+        val text = HtmlRules.extractContent(
+            doc(html),
+            ContentRule(selector = "id.content@html", imageStyle = "FULL")
+        )
+        assertTrue("有 alt 的图片要保留文字", text.contains("插图一"))
+        assertTrue("正文不该残留 img 标签", !text.contains("<img"))
+    }
+
+    @Test
+    fun contentCodecKeepsJsAndImageStyle() {
+        val rule = ContentRule(selector = "#c@html", jsContent = "@js:result", imageStyle = "TEXT")
+        val back = BookRulesCodec.fromJson(BookRulesCodec.toJson(BookRules(content = rule)))!!
+        assertEquals("@js:result", back.content.jsContent)
+        assertEquals("TEXT", back.content.imageStyle)
+    }
+
+    @Test
     fun contentReplaceRegexRemovesSiteAds() {
         val html = "<div id='content'><p>正文第一段很长很长，李火旺慢慢回过神来。</p>" +
             "<p>一秒记住某某网免费阅读！</p></div>"
