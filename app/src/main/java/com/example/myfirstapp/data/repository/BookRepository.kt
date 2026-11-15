@@ -618,23 +618,52 @@ class BookRepository(private val database: AppDatabase) {
         val baseUrl = if (hash >= 0) chapter.url.substring(0, hash) else chapter.url
         val anchorId = if (hash >= 0) chapter.url.substring(hash + 1) else null
 
-        val html = HttpFetcher.withTimeouts(6_000, 12_000) {
-            HttpFetcher.get(baseUrl, source.charset, sourceHeaders(source))
+        val headers = sourceHeaders(source)
+        suspend fun fetchPage(url: String): String = HttpFetcher.withTimeouts(6_000, 12_000) {
+            HttpFetcher.get(url, source.charset, headers)
         }
-        val doc = HtmlRules.parse(html, baseUrl)
-        android.util.Log.d(
-            "BookRepository",
-            "正文页 $baseUrl html=${html.length}字 可见文本=${doc.text().length}字"
-        )
-        val content = if (anchorId.isNullOrBlank()) {
-            HtmlRules.extractContent(doc, rules.content)
-        } else {
-            val siblings = database.chapterIndexDao().listChapters(bookUrl)
-                .map { it.url.substringAfter('#', "") }
-                .filter { it.isNotBlank() }
-                .toSet()
-            HtmlRules.extractContent(doc, rules.content, anchorId, siblings)
+        val siblings = if (anchorId.isNullOrBlank()) emptySet()
+        else database.chapterIndexDao().listChapters(bookUrl)
+            .map { it.url.substringAfter('#', "") }
+            .filter { it.isNotBlank() }
+            .toSet()
+        fun extractFrom(pageHtml: String, pageUrl: String): String {
+            val d = HtmlRules.parse(pageHtml, pageUrl)
+            return if (anchorId.isNullOrBlank()) HtmlRules.extractContent(d, rules.content)
+            else HtmlRules.extractContent(d, rules.content, anchorId, siblings)
         }
+        fun visibleLength(s: String) = s.replace(Regex("<[^>]+>"), "").length
+
+        var html = fetchPage(baseUrl)
+        var doc = HtmlRules.parse(html, baseUrl)
+        android.util.Log.d("BookRepository", "正文页 $baseUrl html=${html.length}字 可见文本=${doc.text().length}字")
+        var content = extractFrom(html, baseUrl)
+
+        // 正文分页：笔趣阁（Legado）靠 nextContentUrl / ruleContentUrlNext 把一章的多页拼起来，
+        // 尘剑此前只抓第一页，所以「内容缺一大半、排版不对」。现在补上自动翻页拼接。
+        // 仅在首段偏短时翻（分页站第一页通常短），最多 3 页、地址去重，避免把下一章拼进来。
+        val nextRule = rules.content.nextContentUrl
+        if (nextRule.isNotBlank() && anchorId.isNullOrBlank() && visibleLength(content) < 1500) {
+            val visited = hashSetOf(baseUrl)
+            var pageUrl = baseUrl
+            var pages = 1
+            while (pages < 3) {
+                val next = runCatching { HtmlRules.firstText(doc, nextRule, pageUrl).trim() }
+                    .getOrDefault("")
+                if (!next.startsWith("http", true) || !visited.add(next) || next == pageUrl) break
+                val nextHtml = runCatching { fetchPage(next) }.getOrDefault("")
+                if (nextHtml.isBlank()) break
+                val part = extractFrom(nextHtml, next)
+                if (part.isBlank() || !HtmlRules.isPlausibleContent(part)) break
+                content = content + "\n" + part
+                html = nextHtml
+                doc = HtmlRules.parse(html, next)
+                pageUrl = next
+                pages++
+            }
+            if (pages > 1) android.util.Log.d("BookRepository", "正文分页拼接 $pages 页，共 ${visibleLength(content)} 字")
+        }
+
         // 抽出来的东西必须像正文：目录页 / 书详情页 / 反爬空壳一律判失败，
         // 既不缓存（否则一直显示错内容），也让阅读器的「自动换源」接手去找能读的源。
         if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) throw IllegalStateException(

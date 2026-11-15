@@ -38,7 +38,10 @@ data class TocRule(
 data class ContentRule(
     val selector: String = "",
     val remove: List<String> = emptyList(),
-    val replace: List<ReplacePair> = emptyList()
+    val replace: List<ReplacePair> = emptyList(),
+    /** 正文分页「下一页」规则（Legado 的 nextContentUrl / ruleContentUrlNext）。
+     *  很多站一章拆成 2~3 页，没有它就只能读到第一页。 */
+    val nextContentUrl: String = ""
 )
 
 data class BookRules(
@@ -69,6 +72,7 @@ object BookRulesCodec {
         })
         root.put("content", JSONObject().apply {
             put("selector", rules.content.selector)
+            put("nextContentUrl", rules.content.nextContentUrl)
             put("remove", JSONArray(rules.content.remove))
             put(
                 "replace",
@@ -110,7 +114,8 @@ object BookRulesCodec {
                 ContentRule(
                     selector = content.optString("selector", ""),
                     remove = stringList(content.optJSONArray("remove")),
-                    replace = replaceList(content.optJSONArray("replace"))
+                    replace = replaceList(content.optJSONArray("replace")),
+                    nextContentUrl = content.optString("nextContentUrl", "")
                 )
             } ?: ContentRule()
         )

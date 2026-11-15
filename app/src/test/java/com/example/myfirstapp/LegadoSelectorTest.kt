@@ -1,6 +1,10 @@
 package com.example.myfirstapp
 
+import com.example.myfirstapp.domain.BookRules
+import com.example.myfirstapp.domain.BookRulesCodec
+import com.example.myfirstapp.domain.ContentRule
 import com.example.myfirstapp.domain.HtmlRules
+import com.example.myfirstapp.domain.ReplacePair
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -183,5 +187,35 @@ class LegadoSelectorTest {
             HtmlRules.isPlausibleContent("<div class='chapter-list'>$directory</div>")
         )
         org.junit.Assert.assertFalse("反爬空壳不该通过", HtmlRules.isPlausibleContent("<div>请稍后</div>"))
+    }
+
+    @Test
+    fun contentRulesKeepPagingAndReplacePairs() {
+        val rules = BookRules(
+            content = ContentRule(
+                selector = "#content@html",
+                replace = listOf(ReplacePair("一秒记住.*免费阅读！", "")),
+                nextContentUrl = "#pb_next@href"
+            )
+        )
+        val back = BookRulesCodec.fromJson(BookRulesCodec.toJson(rules))!!
+        assertEquals("#pb_next@href", back.content.nextContentUrl)
+        assertEquals(1, back.content.replace.size)
+        assertEquals("", back.content.replace[0].to)
+    }
+
+    @Test
+    fun contentReplaceRegexRemovesSiteAds() {
+        val html = "<div id='content'><p>正文第一段很长很长，李火旺慢慢回过神来。</p>" +
+            "<p>一秒记住某某网免费阅读！</p></div>"
+        val out = HtmlRules.extractContent(
+            doc(html),
+            ContentRule(
+                selector = "id.content@html",
+                replace = listOf(ReplacePair("一秒记住.*免费阅读！", ""))
+            )
+        )
+        assertTrue("正文要保留", out.contains("李火旺"))
+        assertTrue("站点广告要被清掉", !out.contains("一秒记住"))
     }
 }
