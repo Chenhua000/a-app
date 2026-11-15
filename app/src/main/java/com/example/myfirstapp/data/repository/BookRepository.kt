@@ -215,9 +215,9 @@ class BookRepository(
      * 只补前几条、且有 6s 整体上限，避免把搜索拖太久。
      */
     private suspend fun enrichSummaries(list: List<BookSearchResult>): List<BookSearchResult> {
-        val targets = list.filterIndexed { i, r -> i < 10 && r.summary.isBlank() }
+        val targets = list.filterIndexed { i, r -> i < 12 && r.summary.isBlank() }
             .distinctBy { it.bookUrl }
-            .take(4)
+            .take(6)
         if (targets.isEmpty()) return list
         val map = java.util.concurrent.ConcurrentHashMap<String, String>()
         withTimeoutOrNull(3_000) {

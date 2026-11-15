@@ -56,4 +56,32 @@ object BookResultFilter {
         if (results.isEmpty() || query.isBlank()) return results
         return results.filter { BookMatchRanking.score(it, query) > 0 }
     }
+
+    /**
+     * 列表展示用：按「书名 + 作者」合并成一条（跟笔趣阁一致，同一本书不在列表里重复刷屏），
+     * 多出的源留在详情页里切换。
+     *
+     * 合并规则：
+     *  - 主条目优先取「非云端源」（云端结果的地址是 QQ 介绍页，点开还要换源）；
+     *  - 简介 / 封面 / 作者 谁有就用谁的（云端结果通常带简介，可以借来用）。
+     * 返回顺序 = 首次出现顺序，不打断原有相关性排序。
+     */
+    fun mergeByBook(results: List<BookSearchResult>): List<BookSearchResult> {
+        if (results.isEmpty()) return emptyList()
+        val groups = LinkedHashMap<String, MutableList<BookSearchResult>>()
+        results.forEach { r -> groups.getOrPut(r.dedupeKey) { mutableListOf() }.add(r) }
+        return groups.values.map { group ->
+            val base = group.firstOrNull { it.sourceId != "cloud_qq" } ?: group.first()
+            val summary = base.summary.ifBlank {
+                group.firstOrNull { it.summary.isNotBlank() }?.summary.orEmpty()
+            }
+            val cover = base.coverUrl.ifBlank {
+                group.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl.orEmpty()
+            }
+            val author = base.author.ifBlank {
+                group.firstOrNull { it.author.isNotBlank() }?.author.orEmpty()
+            }
+            base.copy(summary = summary, coverUrl = cover, author = author)
+        }
+    }
 }

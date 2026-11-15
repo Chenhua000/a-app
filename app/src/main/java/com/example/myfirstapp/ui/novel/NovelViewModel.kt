@@ -8,6 +8,7 @@ import com.example.myfirstapp.data.bookstore.BookstoreCatalog
 import com.example.myfirstapp.data.bookstore.BookstoreData
 import com.example.myfirstapp.data.local.BookSourceEntity
 import com.example.myfirstapp.data.local.ShelfBookEntity
+import com.example.myfirstapp.domain.BookResultFilter
 import com.example.myfirstapp.domain.BookSearchResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -142,11 +143,15 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
                 if (fallbackCover.isNullOrBlank()) list else list.map { result ->
                     if (result.coverUrl.isBlank()) result.copy(coverUrl = fallbackCover) else result
                 }
-            // 边搜边出：每收到一批结果就先显示，不再等所有源都超时
+            // 边搜边出：每收到一批结果就先显示，不再等所有源都超时。
+            // 列表按「书名+作者」合并（同一本书只占一条，多源留给详情页换源）。
             val results = runCatching {
                 repository.search(keyword) { partial ->
                     val p = patch(partial)
-                    if (p.isNotEmpty()) _searchState.value = NovelSearchState.Success(p)
+                    if (p.isNotEmpty()) {
+                        allResults = p
+                        _searchState.value = NovelSearchState.Success(mergeByBook(p))
+                    }
                 }
             }.getOrElse { error ->
                 if (error is CancellationException) throw error
@@ -155,13 +160,14 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             }
             currentCoroutineContext().ensureActive()
             val patched = patch(results)
+            allResults = patched
             _searchState.value = if (patched.isEmpty()) {
                 NovelSearchState.Error(
                     "暂时没搜到《$keyword》（已检索全部 $enabledCount 个已启用书源）。" +
                     "多半是这些源确实没这本、或页面被反爬；换个书名/作者再试，或到「书源」多启用一些源。"
                 )
             } else {
-                NovelSearchState.Success(patched)
+                NovelSearchState.Success(mergeByBook(patched))
             }
         }
     }
@@ -235,6 +241,45 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
     private val _detailNav = MutableStateFlow<DetailNav?>(null)
     val detailNav: StateFlow<DetailNav?> = _detailNav
     private var detailJob: Job? = null
+
+    /** 搜索的**完整**多源结果（不合并）。列表只展示每本书一条，其余源留给详情页「切换」。 */
+    private var allResults: List<BookSearchResult> = emptyList()
+
+    /**
+     * 列表展示用：按「书名+作者」合并成一条，避免同一本书几十个源重复刷屏。
+     * 合并时优先挑「有简介 / 有封面」的那条，并把同书其它源缺的简介/封面补上。
+     */
+    private fun mergeByBook(list: List<BookSearchResult>): List<BookSearchResult> =
+        BookResultFilter.mergeByBook(list)
+
+    /** 搜索结果点进「书籍详情」：候选源直接取本次搜索里同一本书的所有源，不用再搜一遍 */
+    fun openDetailFor(result: BookSearchResult) {
+        // 按「书名」而不是「书名+作者」找候选：很多源搜出来 author 是空的，
+        // 严格匹配会导致「切换」里只剩一个源、按钮变灰。
+        val norm = { s: String -> s.replace(Regex("[\\s《》]"), "") }
+        val target = norm(result.title)
+        val cands = allResults
+            .filter { norm(it.title) == target }
+            .distinctBy { it.sourceId }
+            // 默认优先「能在尘剑里直接读」的源，云端（QQ 介绍页）只作兜底候选
+            .sortedBy { if (it.sourceId == "cloud_qq") 1 else 0 }
+            .ifEmpty { listOf(result) }
+        detailJob?.cancel()
+        _detail.value = DetailState(
+            title = result.title,
+            cover = result.coverUrl.takeIf { it.isNotBlank() },
+            candidates = cands,
+            index = 0,
+            loading = false
+        )
+        loadLatestFor(cands.firstOrNull())
+        viewModelScope.launch {
+            val fav = runCatching { repository.isFavorited(cands.first().bookUrl) }.getOrDefault(false)
+            if (_detail.value.current?.bookUrl == cands.first().bookUrl) {
+                _detail.value = _detail.value.copy(favorited = fav)
+            }
+        }
+    }
 
     fun consumeDetailNav() { _detailNav.value = null }
 

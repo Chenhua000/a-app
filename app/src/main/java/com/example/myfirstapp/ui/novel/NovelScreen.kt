@@ -218,16 +218,36 @@ fun NovelScreen(
                 onBack = { onPageChange(NovelPage.SHELF) },
                 onClearHistory = viewModel::clearSearchHistory
             )
-            NovelPage.SEARCH_RESULT -> SearchResultPage(
-                query = query,
-                searchState = searchState,
-                onQueryChange = viewModel::onQueryChange,
-                onSearch = viewModel::search,
-                onBack = { onPageChange(NovelPage.SEARCH_HISTORY) },
-                onOpenSources = onOpenSources,
-                onAddToShelf = viewModel::addToShelf,
-                onOpenResult = { result -> viewModel.openToRead(result, onOpenBook) }
-            )
+            NovelPage.SEARCH_RESULT -> {
+                if (detail.title.isNotBlank()) {
+                    // 点了某本书 → 书籍详情页（简介 + 来源切换），跟笔趣阁一致
+                    BookDetailPage(
+                        book = com.example.myfirstapp.data.bookstore.StoreBook(
+                            title = detail.title,
+                            author = detail.current?.author.orEmpty(),
+                            cover = detail.cover.orEmpty(),
+                            intro = ""
+                        ),
+                        detail = detail,
+                        onBack = { viewModel.closeDetail() },
+                        onStartRead = viewModel::startRead,
+                        onViewToc = viewModel::viewDetailToc,
+                        onFavorite = viewModel::favoriteCurrent,
+                        onSwitchSource = viewModel::switchDetailSource
+                    )
+                } else {
+                    SearchResultPage(
+                        query = query,
+                        searchState = searchState,
+                        onQueryChange = viewModel::onQueryChange,
+                        onSearch = viewModel::search,
+                        onBack = { onPageChange(NovelPage.SEARCH_HISTORY) },
+                        onOpenSources = onOpenSources,
+                        onAddToShelf = viewModel::addToShelf,
+                        onOpenResult = { result -> viewModel.openDetailFor(result) }
+                    )
+                }
+            }
         }
     }
 }

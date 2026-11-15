@@ -309,7 +309,7 @@ private fun CategoryCard(
 
 /** 书籍详情页（仿笔趣阁）：封面 / 书名 / 作者 / 来源(可切换) / 最新(查看目录) / 简介 / 收藏 + 开始阅读 */
 @Composable
-private fun BookDetailPage(
+internal fun BookDetailPage(
     book: StoreBook,
     detail: NovelViewModel.DetailState?,
     onBack: () -> Unit,
@@ -323,6 +323,8 @@ private fun BookDetailPage(
         ?: if (d?.loading == true) "正在匹配书源…" else "未找到可用书源"
     val coverUrl = (d?.current?.coverUrl?.takeIf { it.isNotBlank() }) ?: book.cover
     val canSwitch = (d?.candidates?.size ?: 0) > 1
+    // 简介：优先用当前源搜出来的简介（搜索结果里合并好的），其次书库数据里的简介
+    val intro = d?.current?.summary?.takeIf { it.isNotBlank() } ?: book.intro
 
     Column(
         modifier = Modifier
@@ -378,10 +380,10 @@ private fun BookDetailPage(
             )
             TextButton(onClick = onViewToc) { Text("查看目录") }
         }
-        if (book.intro.isNotBlank()) {
+        if (intro.isNotBlank()) {
             Text("书籍简介", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text(
-                text = book.intro,
+                text = intro,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
