@@ -87,7 +87,10 @@ class MyFirstApp : Application() {
         // v3.72：dataVer=9——① 按笔趣阁原始 weight/respondTime/customOrder 回填 sortOrder（质量排名，
         // 越小越优质），搜索时按排名分档、优质源先搜；② 额外启用 50 条旧格式但 weight>=1000 的高权重源
         // （笔趣阁里 `enable:true`，v3.59 转换时被误判为关闭，其中懒人听书 weight 21950 等其实是主力源）。
-        val dataVer = 9
+        // v3.73：dataVer=10——从 apk dex 里确认笔趣阁搜索取源 SQL 是 `order by customOrder`
+        // （不是 weight！），改用笔趣阁原始 customOrder 为主排序键重填 sortOrder，weight 仅用于
+        // 没有 customOrder 的旧格式源。同时新增 search_cache 表缓存搜索结果（笔趣阁 searchBooks）。
+        val dataVer = 10
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {
@@ -117,7 +120,7 @@ class AppContainer(private val context: android.content.Context) {
         AppDatabase::class.java,
         "campus_assistant.db"
     )
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11)
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12)
         .addCallback(
             object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {

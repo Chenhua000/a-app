@@ -36,7 +36,7 @@ class LegadoSourcesTest {
             assertTrue("$id 缺搜索地址", item.optString("searchUrl").isNotBlank())
             // 启用笔趣阁原本开启的 654 条 + 50 条旧格式但 weight>=1000 的高权重源
             if (item.optBoolean("enabled", false)) enabledCount++
-            // v3.72：每条源必须有质量排名（笔趣阁 weight/respondTime/customOrder 算出，越小越优质）
+            // v3.73：每条源必须有质量排名（笔趣阁 customOrder 为主、weight 兜底，越小越优质）
             assertTrue("$id 缺质量排名 sortOrder", item.optInt("sortOrder", 0) > 0)
             assertTrue("$id 缺分组", item.optString("group").isNotBlank())
 
@@ -51,13 +51,22 @@ class LegadoSourcesTest {
         assertEquals("应启用 653 条当代源 + 50 条高权重旧格式源", 703, enabledCount)
         assertTrue("不能全启用（否则会搜到坏源导致一本都搜不到）", enabledCount < array.length())
 
-        // 质量排名必须和笔趣阁权重一致：高权重源排在普通源前面
+        // v3.73：从笔趣阁 APK dex 证实搜索取源 SQL 是 `order by customOrder`（不是 weight！），
+        // 因此按 customOrder 为主键回填 sortOrder，越小越优质，优质源先被搜索命中。
         val ranks = (0 until array.length()).associate {
             val o = array.getJSONObject(it); o.optString("id") to o.optInt("sortOrder")
         }
-        assertTrue("高权重源应排在低权重源前面",
-            ranks.getValue("legado_0104") < ranks.getValue("legado_0460") &&
-            ranks.getValue("legado_0460") < ranks.getValue("legado_0001"))
+        assertEquals("最优质源 sortOrder 应为 1", 1, ranks.values.minOrNull())
+        // 排名最前的 10 个必须是「笔趣阁·可用」组的高质量源（搜索默认先搜它们）
+        val top10 = (0 until array.length())
+            .map { array.getJSONObject(it) }
+            .sortedBy { it.optInt("sortOrder") }
+            .take(10)
+        assertTrue("搜索前十必须是笔趣阁可用组的优质源",
+            top10.all { it.optString("group") == "笔趣阁·可用" })
+        assertTrue("低质量普通源应排在优质源后面",
+            ranks.getValue("legado_0104") > ranks.getValue("legado_0441") &&
+            ranks.getValue("legado_0460") > ranks.getValue("legado_0441"))
     }
 
     @Test

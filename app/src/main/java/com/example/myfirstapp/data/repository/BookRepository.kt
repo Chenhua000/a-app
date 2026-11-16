@@ -5,6 +5,7 @@ import com.example.myfirstapp.data.local.AppDatabase
 import com.example.myfirstapp.data.local.BookSourceEntity
 import com.example.myfirstapp.data.local.ChapterCacheEntity
 import com.example.myfirstapp.data.local.ChapterIndexEntity
+import com.example.myfirstapp.data.local.SearchCacheEntity
 import com.example.myfirstapp.data.local.ShelfBookEntity
 import com.example.myfirstapp.data.web.HttpFetcher
 import com.example.myfirstapp.data.web.JsSandbox
@@ -119,6 +120,27 @@ class BookRepository(
                 return ranked.groupBy { it.dedupeKey }.values.flatMap { it.take(12) }
             }
 
+            // v3.73：笔趣阁式搜索结果缓存——先查 search_cache 秒回（笔趣阁就是把每次搜索结果
+            // 落到 searchBooks 表，同一本书缓存多个源，下次同关键词直接查库不用全网重跑）。
+            // 注意：这里只是「先显示缓存」，网络搜索照常跑并合并，最终以更新的结果为准。
+            val cached = runCatching { database.searchCacheDao().byKeyword(keyword) }
+                .getOrDefault(emptyList())
+            if (cached.isNotEmpty()) {
+                val cachedResults = cached.map {
+                    BookSearchResult(
+                        sourceId = it.sourceId,
+                        sourceName = it.sourceName,
+                        title = it.title,
+                        author = it.author,
+                        coverUrl = it.coverUrl,
+                        summary = it.summary,
+                        bookUrl = it.bookUrl,
+                        sourceQuality = it.sourceQuality
+                    )
+                }
+                runCatching { onPartial?.invoke(clean(cachedResults)) }
+            }
+
             // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
             // 第一条结果出来几百毫秒就能显示。
             val semaphore = Semaphore(32)
@@ -205,6 +227,28 @@ class BookRepository(
             // 会拖慢「搜索结果出现」的时间。改由 VM 在列表渲染之后再后台补。
             val finalResult = clean(acc)
             onPartial?.invoke(finalResult)
+            // v3.73：把本次搜索结果落库（笔趣阁 searchBooks 机制），供下次同关键词秒回。
+            // 顺带清理 30 天前的过期缓存，避免表无限膨胀。失败不影响主流程。
+            if (finalResult.isNotEmpty()) {
+                runCatching {
+                    val now = System.currentTimeMillis()
+                    database.searchCacheDao().upsertAll(finalResult.map {
+                        SearchCacheEntity(
+                            sourceId = it.sourceId,
+                            bookUrl = it.bookUrl,
+                            keyword = keyword,
+                            title = it.title,
+                            author = it.author,
+                            coverUrl = it.coverUrl,
+                            summary = it.summary,
+                            sourceName = it.sourceName,
+                            sourceQuality = it.sourceQuality,
+                            savedAtMillis = now
+                        )
+                    })
+                    database.searchCacheDao().deleteOlderThan(now - 30L * 24 * 60 * 60 * 1000)
+                }
+            }
             finalResult
         }
 
@@ -709,25 +753,40 @@ class BookRepository(
         // 仅在首段偏短时翻（分页站第一页通常短），最多 3 页、地址去重，避免把下一章拼进来。
         val nextRule = rules.content.nextContentUrl
         if (nextRule.isNotBlank() && anchorId.isNullOrBlank() && visibleLength(content) < 1500) {
+            // v3.73：多数分页规则的「下一页地址」可从当前页面直接解析出来（或最多跟进一页），
+            // 先把候选 URL 解析完，再并行抓取，避免 2 次串行 4s/6s 超时叠加。
             val visited = hashSetOf(baseUrl)
-            var pageUrl = baseUrl
-            var pages = 1
-            while (pages < 3) {
-                val next = runCatching { HtmlRules.firstText(doc, nextRule, pageUrl).trim() }
+            val extraUrls = ArrayList<String>()
+            var cursorDoc = doc
+            var cursorUrl = baseUrl
+            repeat(2) {
+                val next = runCatching { HtmlRules.firstText(cursorDoc, nextRule, cursorUrl).trim() }
                     .getOrDefault("")
-                if (!next.startsWith("http", true) || !visited.add(next) || next == pageUrl) break
-                val nextHtml = runCatching { fetchPage(next) }.getOrDefault("")
-                if (nextHtml.isBlank()) break
-                val nextDoc = HtmlRules.parse(nextHtml, next)
-                val part = extractFromDoc(nextDoc)
-                if (part.isBlank() || !HtmlRules.isPlausibleContent(part)) break
-                content = content + "\n" + part
-                html = nextHtml
-                doc = nextDoc
-                pageUrl = next
-                pages++
+                if (!next.startsWith("http", true) || !visited.add(next) || next == cursorUrl) return@repeat
+                extraUrls.add(next)
+                // 只有地址是「相对当前页」写出来时才需要抓一页才知道下一页；
+                // 这里保守只解析首跳，其余靠并行抓取后各自的页面继续。
+                cursorUrl = next
             }
-            if (pages > 1) android.util.Log.d("BookRepository", "正文分页拼接 $pages 页，共 ${visibleLength(content)} 字")
+            if (extraUrls.isNotEmpty()) {
+                val parts = kotlinx.coroutines.coroutineScope {
+                    extraUrls.map { url -> async { runCatching { fetchPage(url) }.getOrNull() } }
+                        .map { it.await() }
+                }
+                var pages = 1
+                parts.forEachIndexed { i, nextHtml ->
+                    if (nextHtml.isNullOrBlank()) return@forEachIndexed
+                    val nextDoc = HtmlRules.parse(nextHtml, extraUrls[i])
+                    val part = extractFromDoc(nextDoc)
+                    if (part.isBlank() || !HtmlRules.plausibleText(
+                            part.replace(Regex("<[^>]+>"), "")
+                        )) return@forEachIndexed
+                    content = content + "\n" + part
+                    html = nextHtml
+                    pages++
+                }
+                if (pages > 1) android.util.Log.d("BookRepository", "正文分页拼接 $pages 页，共 ${visibleLength(content)} 字")
+            }
         }
 
         // 抽出来的东西必须像正文：目录页 / 书详情页 / 反爬空壳一律判失败，
@@ -752,6 +811,17 @@ class BookRepository(
         feedbackQuality(source.id, -12)
         ChapterContent(chapter.title, chapter.url, content, false)
     }
+
+    /**
+     * 只读章节缓存（不联网）——跨章端点页用。
+     * 打开一章时若为了「上一章末页/下一章首页」去抓两章网络，首屏会被拖慢很多；
+     * 这里命中就用，没命中就不显示端点页，后台 prefetchNext 会补。
+     */
+    suspend fun cachedChapterContent(url: String): ChapterContent? =
+        database.chapterCacheDao().get(url)?.let {
+            if (isDirtyCachedContent(it.content)) null
+            else ChapterContent(it.title, it.url, it.content, true)
+        }
 
     /** 缓存里只有 1~2 章、且指向书页自身，说明是旧版兜底写进去的脏数据 */
     private fun cachedIsBookPage(cached: List<ChapterIndexEntity>, bookUrl: String): Boolean {

@@ -177,6 +177,30 @@ data class ChapterCacheEntity(
 )
 
 /**
+ * v3.73：搜索结果缓存，对齐笔趣阁的 `searchBooks` 表。
+ * 笔趣阁「随便搜都快、换源秒切」的核心就是它把每次搜索结果落库：
+ * 同一书名/作者缓存多个 origin（书源），下次相同搜索直接查库，不用全网重跑。
+ * 主键 = 源 + 书地址（同一本书多个源各存一条），title 建索引供按书名查。
+ */
+@Entity(
+    tableName = "search_cache",
+    primaryKeys = ["sourceId", "bookUrl"],
+    indices = [Index("title"), Index("keyword")]
+)
+data class SearchCacheEntity(
+    val sourceId: String,
+    val bookUrl: String,
+    val keyword: String,
+    val title: String,
+    val author: String,
+    val coverUrl: String,
+    val summary: String,
+    val sourceName: String,
+    val sourceQuality: Int,
+    val savedAtMillis: Long
+)
+
+/**
  * 已经交给系统的闹钟清单，用于精确取消与重排。
  */
 @Entity(tableName = "scheduled_alarms")

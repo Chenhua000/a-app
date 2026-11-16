@@ -107,6 +107,8 @@ import com.example.myfirstapp.domain.ChapterContent
 import com.example.myfirstapp.ui.theme.minTouchTarget
 import com.example.myfirstapp.ui.theme.onColorFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -284,11 +286,11 @@ class ReaderViewModel(
      * 也摆进 pager，滑到章末才能像本章内翻页那样滑过去。优先命中 [prefetchNext] 的缓存。
      */
     suspend fun neighbourChapter(target: Int): Pair<String, String>? {
-        val entity = _book.value ?: return null
         val chapter = _chapters.value.getOrNull(target) ?: return null
-        val content = runCatching {
-            repository.chapterContent(entity.sourceId, entity.bookUrl, chapter, forceRefresh = false)
-        }.getOrNull() ?: return null
+        // v3.73：只读缓存，绝不在这里发网络请求。打开一章时「跨章端点页」曾经会
+        // 连带抓上一章+下一章（每章 4s/6s 超时），是排版慢的最大元凶；
+        // 下一章 by prefetchNext() 后台抓，这里命中就用、没命中就先不显示端点页。
+        val content = repository.cachedChapterContent(chapter.url) ?: return null
         return chapter.title to content.html
     }
 
@@ -485,11 +487,19 @@ fun ReaderScreen(
     val pageTitle = remember(singleChapter, book, chapterTitle) {
         if (singleChapter) book?.title.orEmpty().ifBlank { chapterTitle } else chapterTitle
     }
-    val plainText = remember(rawHtml, pageTitle) {
-        val text = rawHtml
-            ?.let { prettify(Html.fromHtml(it, Html.FROM_HTML_MODE_COMPACT).toString()) }
-            .orEmpty()
-        stripLeadingHeading(text, pageTitle)
+    // v3.73：HTML→纯文本放到 Default，别在 Composition 主线程做（长章几十~几百 ms）。
+    // 用 rawHtml.hashCode() 当 key，不再把整章文本拼进 pageKey（巨字符串每次重组都重拼）。
+    var plainText by remember { mutableStateOf("") }
+    var plainReady by remember { mutableStateOf(false) }
+    LaunchedEffect(rawHtml, pageTitle) {
+        val html = rawHtml
+        if (html == null) { plainText = ""; plainReady = true; return@LaunchedEffect }
+        plainReady = false
+        val text = withContext(Dispatchers.Default) {
+            stripLeadingHeading(prettify(Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT).toString()), pageTitle)
+        }
+        plainText = text
+        plainReady = true
     }
 
     Box(
@@ -525,9 +535,10 @@ fun ReaderScreen(
                     val lineHeightPx = with(density) { (fontSize * lineSpacing).sp.toPx() }
                     val titleGapPx = with(density) { 14.dp.toPx().toInt() }
 
-                    val pageKey = "$plainText|$pageTitle|$widthPx|$heightPx|$fontSize|$lineSpacing|$serif"
+                    val pageKey = "${plainText.hashCode()}|$pageTitle|$widthPx|$heightPx|$fontSize|$lineSpacing|$serif"
                     var paged by remember { mutableStateOf<PagedResult?>(null) }
-                    LaunchedEffect(pageKey) {
+                    LaunchedEffect(pageKey, plainReady) {
+                        if (!plainReady) return@LaunchedEffect
                         val result = withContext(Dispatchers.Default) {
                             runCatching {
                                 paginateChapter(
@@ -565,13 +576,22 @@ fun ReaderScreen(
                         } else {
                             raw.first
                         }
-                        val edges = withContext(Dispatchers.Default) {
+                        // v3.73：只要端点那一页，不再对整章排版。原来对上一章/下一章各跑一次
+                        // paginateChapter（几万字、几百页）只为取首/末一页，占掉 2/3 的排版量。
+                        // 这里只留够排 1~2 页的文本：下一章取开头，上一章取结尾。
+                        val edge = withContext(Dispatchers.Default) {
                             runCatching {
                                 val body = prettify(
                                     Html.fromHtml(raw.second, Html.FROM_HTML_MODE_COMPACT).toString()
                                 )
+                                val stripped = stripLeadingHeading(body, title)
+                                val sample = if (wantLast) {
+                                    stripped.takeLast(2500)
+                                } else {
+                                    stripped.take(2500)
+                                }
                                 paginateChapter(
-                                    text = stripLeadingHeading(body, title),
+                                    text = sample,
                                     title = title,
                                     measurer = measurer,
                                     bodyStyle = bodyStyle,
@@ -580,27 +600,25 @@ fun ReaderScreen(
                                     heightPx = heightPx,
                                     lineHeightPx = lineHeightPx,
                                     titleGapPx = titleGapPx
-                                )
-                            }.getOrElse { emptyList() }
-                        }
-                        val edge = (if (wantLast) edges.lastOrNull() else edges.firstOrNull())
-                            ?: return null
+                                ).let { if (wantLast) it.lastOrNull() else it.firstOrNull() }
+                            }.getOrNull()
+                        } ?: return null
                         return DisplayPage(edge.text, title, isFirst = !wantLast)
                     }
 
                     var prevGhost by remember { mutableStateOf<DisplayPage?>(null) }
                     var nextGhost by remember { mutableStateOf<DisplayPage?>(null) }
                     LaunchedEffect(index, chapters.size, widthPx, heightPx, fontSize, lineSpacing, serif) {
-                        // 刻意不先清空：换章瞬间旧的虚拟页还在，pager 的页数不会突然缩水
-                        prevGhost = if (index - 1 in chapters.indices) {
-                            neighbourEdge(index - 1, wantLast = true)
-                        } else {
-                            null
-                        }
-                        nextGhost = if (index + 1 in chapters.indices) {
-                            neighbourEdge(index + 1, wantLast = false)
-                        } else {
-                            null
+                        // v3.73：端点页延后到本章排版完成后再做，且两章并行，别抢首屏的 Default 线程。
+                        if (!layoutCurrent || paged == null) return@LaunchedEffect
+                        kotlinx.coroutines.coroutineScope {
+                            val prevTarget = if (index - 1 in chapters.indices) index - 1 else -1
+                            val nextTarget = if (index + 1 in chapters.indices) index + 1 else -1
+                            val prev = async { if (prevTarget >= 0) neighbourEdge(prevTarget, wantLast = true) else null }
+                            val next = async { if (nextTarget >= 0) neighbourEdge(nextTarget, wantLast = false) else null }
+                            // 刻意不先清空：换章瞬间旧的虚拟页还在，pager 的页数不会突然缩水
+                            prevGhost = prev.await()
+                            nextGhost = next.await()
                         }
                     }
 
@@ -923,6 +941,7 @@ private fun paginateChapter(
         var end = -1
         while (true) {
             val to = minOf(text.length, start + window)
+            // 只在测量窗口内取子串（窗口按行数估算，不会复制整章文本）
             val layout = measurer.measure(
                 AnnotatedString(text.substring(start, to)),
                 bodyStyle,
@@ -950,15 +969,18 @@ private fun paginateChapter(
 }
 
 /** 正文开头就是章节标题时（很多站点会把标题也抓进正文），这几行去掉，避免和页首标题重复 */
+private val WHITESPACE_RE = Regex("\\s+")
+private val DOUBLE_SPACE_RE = Regex("[ \\t]{2,}")
+
 private fun stripLeadingHeading(text: String, title: String): String {
     if (text.isEmpty() || title.isBlank()) return text
-    val target = title.replace(Regex("\\s+"), " ").trim().lowercase()
+    val target = title.replace(WHITESPACE_RE, " ").trim().lowercase()
     if (target.isEmpty()) return text
     val lines = text.split('\n')
     val joined = StringBuilder()
     for ((i, line) in lines.take(3).withIndex()) {
         joined.append(line.trim().trimStart('　')).append(' ')
-        val candidate = joined.toString().replace(Regex("\\s+"), " ").trim().lowercase()
+        val candidate = joined.toString().replace(WHITESPACE_RE, " ").trim().lowercase()
         if (candidate == target) return lines.drop(i + 1).joinToString("\n")
         if (candidate.length >= target.length) break
     }
@@ -975,7 +997,7 @@ private fun prettify(raw: String): String {
         .replace('\u00A0', ' ')
     val sb = StringBuilder(cleaned.length + cleaned.length / 8)
     for (line in cleaned.split('\n')) {
-        val t = line.trim().replace(Regex("[ \\t]{2,}"), " ")
+        val t = line.trim().replace(DOUBLE_SPACE_RE, " ")
         if (t.isEmpty()) continue
         if (sb.isNotEmpty()) sb.append('\n')
         sb.append("　　").append(t)

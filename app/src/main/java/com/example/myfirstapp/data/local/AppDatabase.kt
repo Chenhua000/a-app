@@ -39,9 +39,10 @@ class Converters {
         ChapterCacheEntity::class,
         IdeaEntity::class,
         TaskEntity::class,
-        TaskCompletionEntity::class
+        TaskCompletionEntity::class,
+        SearchCacheEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -56,6 +57,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun shelfBookDao(): ShelfBookDao
     abstract fun chapterIndexDao(): ChapterIndexDao
     abstract fun chapterCacheDao(): ChapterCacheDao
+    abstract fun searchCacheDao(): SearchCacheDao
     abstract fun ideaDao(): IdeaDao
     abstract fun taskDao(): TaskDao
 
@@ -79,6 +81,22 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE book_sources ADD COLUMN header TEXT")
+            }
+        }
+
+        /** v3.73：搜索结果缓存表（对齐笔趣阁 searchBooks），让重复搜索秒回、换源秒切 */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `search_cache` (" +
+                        "`sourceId` TEXT NOT NULL, `bookUrl` TEXT NOT NULL, `keyword` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, `author` TEXT NOT NULL, `coverUrl` TEXT NOT NULL, " +
+                        "`summary` TEXT NOT NULL, `sourceName` TEXT NOT NULL, " +
+                        "`sourceQuality` INTEGER NOT NULL, `savedAtMillis` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`sourceId`, `bookUrl`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_search_cache_title` ON `search_cache` (`title`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_search_cache_keyword` ON `search_cache` (`keyword`)")
             }
         }
 

@@ -280,6 +280,27 @@ interface ChapterCacheDao {
 }
 
 @Dao
+interface SearchCacheDao {
+    /** 同关键词命中：秒回，不用全网重搜（笔趣阁 searchBooks 的核心） */
+    @Query("SELECT * FROM search_cache WHERE keyword = :keyword ORDER BY sourceQuality ASC LIMIT 200")
+    suspend fun byKeyword(keyword: String): List<SearchCacheEntity>
+
+    /** 书名兜底：用户换个说法搜同一本书也能命中缓存 */
+    @Query("SELECT * FROM search_cache WHERE title = :title ORDER BY sourceQuality ASC LIMIT 200")
+    suspend fun byTitle(title: String): List<SearchCacheEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<SearchCacheEntity>)
+
+    /** 缓存过期清理（笔趣阁也是定期清 searchBooks） */
+    @Query("DELETE FROM search_cache WHERE savedAtMillis < :beforeMillis")
+    suspend fun deleteOlderThan(beforeMillis: Long)
+
+    @Query("DELETE FROM search_cache")
+    suspend fun clear()
+}
+
+@Dao
 interface ScheduledAlarmDao {
     @Query("SELECT * FROM scheduled_alarms")
     suspend fun list(): List<ScheduledAlarmEntity>
