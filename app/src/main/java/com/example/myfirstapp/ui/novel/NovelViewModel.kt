@@ -293,28 +293,58 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeDetailNav() { _detailNav.value = null }
 
-    /** 打开详情：按书名在所有源里搜一遍，得到「同一本书在不同源」的候选，供切换 */
-    fun openDetail(title: String, cover: String?) {
+    /** 把一批搜索结果过滤成「同一本书的各源候选」（书名归一化匹配 + 源去重 + 非云端优先） */
+    private fun candidatesOf(list: List<BookSearchResult>, kw: String): List<BookSearchResult> {
+        val norm = { s: String -> s.replace(Regex("[\\s《》]"), "") }
+        val nkw = norm(kw)
+        val matched = list.filter {
+            val t = norm(it.title)
+            t.isNotEmpty() && (t.contains(nkw) || nkw.contains(t))
+        }.ifEmpty { list }
+        return matched.distinctBy { it.sourceId }
+            .sortedBy { if (it.sourceId == "cloud_qq") 1 else 0 }
+    }
+
+    /**
+     * 打开详情（书库/榜单点书走这里）：**两段式**——
+     * 先跑一波 6 秒的快速搜索（含云端兜底），有结果就立刻让用户能读；
+     * 再在后台跑全量搜索，把更多源补进「切换」列表。
+     * （之前等完整 14 秒才出候选，按钮一直灰着，看着像「打不开」）
+     */
+    fun openDetail(title: String, cover: String?, author: String? = null) {
         val kw = title.trim()
         if (kw.isEmpty()) return
         detailJob?.cancel()
         detailJob = viewModelScope.launch {
             _detail.value = DetailState(title = kw, cover = cover, loading = true)
-            val list = runCatching { repository.search(kw) }.getOrDefault(emptyList())
-            val norm = { s: String -> s.replace(Regex("[\\s《》]"), "") }
-            val nkw = norm(kw)
-            val matched = list.filter {
-                val t = norm(it.title)
-                t.isNotEmpty() && (t.contains(nkw) || nkw.contains(t))
-            }.ifEmpty { list }
-            val perSource = matched.distinctBy { it.sourceId }
-            _detail.value = _detail.value.copy(candidates = perSource, index = 0, loading = false)
-            loadLatestFor(perSource.getOrNull(0))
-            perSource.firstOrNull()?.let { c ->
+
+            val quick = runCatching { repository.search(kw, sourceLimit = 60, windowMs = 6_000) }
+                .getOrDefault(emptyList())
+            val first = candidatesOf(quick, kw)
+            _detail.value = _detail.value.copy(candidates = first, index = 0, loading = false)
+            loadLatestFor(first.firstOrNull())
+            first.firstOrNull()?.let { c ->
                 val fav = runCatching { repository.isFavorited(c.bookUrl) }.getOrDefault(false)
                 if (_detail.value.current?.bookUrl == c.bookUrl) {
                     _detail.value = _detail.value.copy(favorited = fav)
                 }
+            }
+
+            // 第二段：全量补源（后台，不阻塞已经可用的界面）
+            var all = candidatesOf(runCatching { repository.search(kw) }.getOrDefault(emptyList()), kw)
+            // 冷门书只用书名搜不到时，用「书名 + 作者」再试一次（可显著提高命中）
+            val authorKey = author?.trim().orEmpty()
+            if (all.isEmpty() && authorKey.isNotEmpty()) {
+                all = candidatesOf(
+                    runCatching { repository.search("$kw $authorKey", sourceLimit = 120, windowMs = 10_000) }
+                        .getOrDefault(emptyList()),
+                    kw
+                )
+            }
+            if (all.size > _detail.value.candidates.size && _detail.value.title == kw) {
+                _detail.value = _detail.value.copy(candidates = all, loading = false)
+            } else if (_detail.value.title == kw) {
+                _detail.value = _detail.value.copy(loading = false)
             }
         }
     }
@@ -347,9 +377,29 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 详情页「切换」菜单：直接选第 index 个候选源 */
+    fun selectDetailSource(index: Int) {
+        val s = _detail.value
+        val c = s.candidates.getOrNull(index) ?: return
+        if (index == s.index) return
+        _detail.value = s.copy(index = index, latestChapter = null, favorited = false)
+        loadLatestFor(c)
+        viewModelScope.launch {
+            val fav = runCatching { repository.isFavorited(c.bookUrl) }.getOrDefault(false)
+            if (_detail.value.current?.bookUrl == c.bookUrl) {
+                _detail.value = _detail.value.copy(favorited = fav)
+            }
+        }
+    }
+
     /** 开始阅读：建临时记录（不进书架）后直接进阅读器 */
     fun startRead() {
-        val c = _detail.value.current ?: return
+        val s = _detail.value
+        val c = s.candidates.getOrNull(s.index)
+        if (c == null) {
+            _message.value = if (s.loading) "正在匹配书源，稍等一下…" else "没找到可用书源，换个书名再搜试试"
+            return
+        }
         viewModelScope.launch {
             val id = runCatching { repository.ensureReadingBook(c) }.getOrDefault(0)
             if (id > 0) _detailNav.value = DetailNav.Reader(id)
@@ -359,7 +409,12 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 查看目录：同样用临时记录，进目录页 */
     fun viewDetailToc() {
-        val c = _detail.value.current ?: return
+        val s = _detail.value
+        val c = s.candidates.getOrNull(s.index)
+        if (c == null) {
+            _message.value = if (s.loading) "正在匹配书源，稍等一下…" else "没找到可用书源，换个书名再搜试试"
+            return
+        }
         viewModelScope.launch {
             val id = runCatching { repository.ensureReadingBook(c) }.getOrDefault(0)
             if (id > 0) _detailNav.value = DetailNav.Toc(id)

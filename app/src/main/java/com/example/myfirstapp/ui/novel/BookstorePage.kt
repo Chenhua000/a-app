@@ -1,5 +1,6 @@
 package com.example.myfirstapp.ui.novel
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.style.TextAlign
@@ -62,18 +65,30 @@ fun BookstorePage(
     onSearch: (String, String?) -> Unit,
     onOpenSources: () -> Unit,
     detail: NovelViewModel.DetailState? = null,
-    onOpenDetail: (String, String?) -> Unit = { _, _ -> },
+    onOpenDetail: (String, String?, String?) -> Unit = { _, _, _ -> },
     onStartRead: () -> Unit = {},
     onViewToc: () -> Unit = {},
     onFavorite: () -> Unit = {},
     onSwitchSource: () -> Unit = {},
-    onCloseDetail: () -> Unit = {}
+    onSelectSource: (Int) -> Unit = {},
+    onCloseDetail: () -> Unit = {},
+    onManualSearch: (String) -> Unit = {}
 ) {
     var selected by remember { mutableStateOf<StoreCategory?>(null) }
     var selectedBook by remember { mutableStateOf<StoreBook?>(null) }
     var period by remember { mutableStateOf("day") }
     var showAllRank by remember { mutableStateOf(false) }
     val current = if (channel == "female") data?.female else data?.male
+
+    // 书库里的二级页（分类书单 / 书籍详情）按系统返回键要回上一级，不能直接退 App
+    BackHandler(enabled = selectedBook != null || selected != null) {
+        if (selectedBook != null) {
+            selectedBook = null
+            onCloseDetail()
+        } else {
+            selected = null
+        }
+    }
 
         if (selectedBook != null) {
             BookDetailPage(
@@ -83,7 +98,9 @@ fun BookstorePage(
                 onStartRead = onStartRead,
                 onViewToc = onViewToc,
                 onFavorite = onFavorite,
-                onSwitchSource = onSwitchSource
+                onSwitchSource = onSwitchSource,
+                onSelectSource = onSelectSource,
+                onManualSearch = { onManualSearch(selectedBook!!.title) }
             )
             return
         }
@@ -92,7 +109,7 @@ fun BookstorePage(
         CategoryBooksPage(
             category = selected!!,
             onBack = { selected = null },
-            onOpenBook = { book -> selectedBook = book; onOpenDetail(book.title, book.cover) }
+            onOpenBook = { book -> selectedBook = book; onOpenDetail(book.title, book.cover, book.author) }
         )
         return
     }
@@ -189,7 +206,7 @@ fun BookstorePage(
 
         val ranks = current?.ranks?.get(period).orEmpty()
         ranks.take(if (showAllRank) 10 else 6).forEachIndexed { index, rank ->
-            RankRow(index + 1, rank) { book -> selectedBook = book; onOpenDetail(book.title, book.cover) }
+            RankRow(index + 1, rank) { book -> selectedBook = book; onOpenDetail(book.title, book.cover, book.author) }
         }
         if (ranks.isEmpty()) {
             Text(
@@ -316,7 +333,9 @@ internal fun BookDetailPage(
     onStartRead: () -> Unit,
     onViewToc: () -> Unit,
     onFavorite: () -> Unit,
-    onSwitchSource: () -> Unit
+    onSwitchSource: () -> Unit,
+    onSelectSource: (Int) -> Unit = {},
+    onManualSearch: () -> Unit = {}
 ) {
     val d = detail
     val sourceName = d?.current?.sourceName
@@ -356,7 +375,7 @@ internal fun BookDetailPage(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
-        // 来源 + 切换（同一本书换一个书源）
+        // 来源 + 切换：点「切换」弹出**搜到这本书的所有书源**，自己挑一个
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("来源：", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
@@ -366,7 +385,29 @@ internal fun BookDetailPage(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            TextButton(onClick = onSwitchSource, enabled = canSwitch) { Text("切换") }
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                TextButton(onClick = { if (canSwitch) menuOpen = true }, enabled = canSwitch) {
+                    Text("切换")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    d?.candidates?.forEachIndexed { i, c ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (i == d.index) "${c.sourceName}（当前）" else c.sourceName,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            onClick = {
+                                menuOpen = false
+                                onSelectSource(i)
+                            }
+                        )
+                    }
+                }
+            }
         }
         // 最新章节 + 查看目录
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -378,7 +419,7 @@ internal fun BookDetailPage(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            TextButton(onClick = onViewToc) { Text("查看目录") }
+            TextButton(onClick = onViewToc, enabled = d?.current != null) { Text("查看目录") }
         }
         if (intro.isNotBlank()) {
             Text("书籍简介", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -388,13 +429,26 @@ internal fun BookDetailPage(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        // 一个源都没搜到时，别让用户对着灰按钮发呆，给个手动搜索的出口
+        if (d != null && !d.loading && d.candidates.isEmpty()) {
+            Text(
+                text = "没找到可用书源：这本书在已启用的书源里都没搜到。可以换个书名，或到「书源」多启用一些源。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            TextButton(onClick = onManualSearch) { Text("手动搜索这本书") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = onFavorite,
-                enabled = d?.favorited != true,
+                enabled = d?.current != null && d?.favorited != true,
                 modifier = Modifier.weight(1f)
             ) { Text(if (d?.favorited == true) "已收藏" else "收藏书籍") }
-            Button(onClick = onStartRead, modifier = Modifier.weight(1f)) { Text("开始阅读") }
+            Button(
+                onClick = onStartRead,
+                enabled = d?.current != null,
+                modifier = Modifier.weight(1f)
+            ) { Text(if (d?.loading == true) "正在匹配…" else "开始阅读") }
         }
     }
 }

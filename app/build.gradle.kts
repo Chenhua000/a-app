@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.myfirstapp"
         minSdk = 24
         targetSdk = 35
-        versionCode = 66
-        versionName = "3.69"
+        versionCode = 67
+        versionName = "3.70"
     }
 
     buildTypes {

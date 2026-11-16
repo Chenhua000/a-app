@@ -1,5 +1,6 @@
 package com.example.myfirstapp.ui.novel
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -142,6 +143,15 @@ fun NovelScreen(
         }
     }
 
+    // 系统返回键：搜索结果页 / 搜索历史页要逐级回退，否则会直接退出 App（用户反馈过）
+    BackHandler(enabled = page == NovelPage.SEARCH_RESULT || page == NovelPage.SEARCH_HISTORY) {
+        when {
+            detail.title.isNotBlank() -> viewModel.closeDetail()
+            page == NovelPage.SEARCH_RESULT -> onPageChange(NovelPage.SEARCH_HISTORY)
+            else -> onPageChange(NovelPage.SHELF)
+        }
+    }
+
     // 详情页「开始阅读 / 查看目录」：分别跳到阅读器 / 目录页
     LaunchedEffect(detailNav) {
         when (val nav = detailNav) {
@@ -184,12 +194,19 @@ fun NovelScreen(
                 },
                 onOpenSources = onOpenSources,
                 detail = detail,
-                onOpenDetail = { title, cover -> viewModel.openDetail(title, cover) },
+                onOpenDetail = { title, cover, author -> viewModel.openDetail(title, cover, author) },
                 onStartRead = viewModel::startRead,
                 onViewToc = viewModel::viewDetailToc,
                 onFavorite = viewModel::favoriteCurrent,
                 onSwitchSource = viewModel::switchDetailSource,
-                onCloseDetail = viewModel::closeDetail
+                onSelectSource = viewModel::selectDetailSource,
+                onCloseDetail = viewModel::closeDetail,
+                onManualSearch = { title ->
+                    viewModel.closeDetail()
+                    viewModel.onQueryChange(title)
+                    onPageChange(NovelPage.SEARCH_RESULT)
+                    viewModel.search()
+                }
             )
             NovelPage.SHELF -> ShelfPage(
                 books = shelf,
@@ -233,7 +250,15 @@ fun NovelScreen(
                         onStartRead = viewModel::startRead,
                         onViewToc = viewModel::viewDetailToc,
                         onFavorite = viewModel::favoriteCurrent,
-                        onSwitchSource = viewModel::switchDetailSource
+                        onSwitchSource = viewModel::switchDetailSource,
+                        onSelectSource = viewModel::selectDetailSource,
+                        onManualSearch = {
+                            val t = detail.title
+                            viewModel.closeDetail()
+                            viewModel.onQueryChange(t)
+                            onPageChange(NovelPage.SEARCH_RESULT)
+                            viewModel.search()
+                        }
                     )
                 } else {
                     SearchResultPage(
