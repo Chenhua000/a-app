@@ -90,7 +90,11 @@ class MyFirstApp : Application() {
         // v3.73：dataVer=10——从 apk dex 里确认笔趣阁搜索取源 SQL 是 `order by customOrder`
         // （不是 weight！），改用笔趣阁原始 customOrder 为主排序键重填 sortOrder，weight 仅用于
         // 没有 customOrder 的旧格式源。同时新增 search_cache 表缓存搜索结果（笔趣阁 searchBooks）。
-        val dataVer = 10
+        // v3.74：dataVer=11——修「笔趣阁主力源阅友小说/爱下电子书本地等于没有」：
+        // 阅友小说(customOrder=89 头部源)用 JSON API($..list[*])，本地引擎补了 JSONPath 解析；
+        // 爱下电子书旧格式 enable:true 被误判停用，且站点迁到 ixdzs8.com 改版，换新规则并启用；
+        // 两条源都提到 sortOrder 头部（95~102），保证搜索第一批就命中。
+        val dataVer = 11
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {

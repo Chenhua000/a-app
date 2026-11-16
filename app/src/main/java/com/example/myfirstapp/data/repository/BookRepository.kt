@@ -38,6 +38,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -55,6 +56,12 @@ class BookRepository(
     private fun sourceHeaders(source: BookSourceEntity): Map<String, String> {
         val raw = source.header?.trim().orEmpty()
         if (raw.isEmpty()) return emptyMap()
+        // v3.74：阅友等源用 <js> 脚本只为了设一个 UA（并没有真正执行接口签名），
+        // 这里直接把脚本里的 ua 字符串抠出来当 User-Agent，不必跑 JS 引擎。
+        if (raw.startsWith("<js>", ignoreCase = true)) {
+            val ua = Regex("var\\s+ua\\s*=\\s*\"([^\"]+)\"").find(raw)?.groupValues?.getOrNull(1)
+            return if (ua.isNullOrBlank()) emptyMap() else mapOf("User-Agent" to ua)
+        }
         val obj = runCatching { org.json.JSONObject(raw) }.getOrNull() ?: return emptyMap()
         val out = LinkedHashMap<String, String>()
         obj.keys().forEach { k ->
@@ -423,7 +430,10 @@ class BookRepository(
         val doc = HtmlRules.parse(html, source.baseUrl)
 
         val results = mutableListOf<BookSearchResult>()
-        if (rules != null && rules.search.list.isNotBlank()) {
+        // v3.74：阅友小说等 JSON API 源的 searchUrl 返回 JSON，规则是 $..list[*] 这种 JSONPath。
+        // 把 JSON 喂给 Jsoup 选择器会抛 Selector.ParseException，直接中断整个搜索 → 必须先跳过 CSS 解析。
+        val isJsonResponse = html.trimStart().let { it.startsWith("{") || it.startsWith("[") }
+        if (!isJsonResponse && rules != null && rules.search.list.isNotBlank()) {
             HtmlRules.selectList(doc, rules.search.list).forEach { element ->
                 val title = HtmlRules.firstText(element, rules.search.name, source.baseUrl).trim()
                 if (title.isEmpty()) return@forEach
@@ -445,10 +455,136 @@ class BookRepository(
                 )
             }
         }
+        // v3.74：阅友小说等优质源走的是 JSON API（searchUrl 返回 JSON，规则是 $..list[*] 这种
+        // JSONPath），Jsoup 那套 CSS 选择器解析不了 → 之前这些源一直「启用却搜不出」。补上 JSON 解析。
+        if (results.isEmpty()) {
+            results.addAll(jsonApiSearch(html, source, keyword))
+        }
         // 规则陈旧/缺失导致解析不出时：直接在结果页抓「文字含关键词的链接」当结果。
         // 网上这些 2023 年的转换规则大量已失效，但页面本身还正常，靠这一层兜底能救回来。
         if (results.isNotEmpty()) return results
         return genericSearchFallback(doc, source, keyword)
+    }
+
+    /**
+     * JSON API 搜索解析（v3.74）：支持笔趣阁 JSONPath 风格规则——
+     * list=$..list[*] / data.list[*]，字段=$.bookName，url 支持 http://…/{$.wapBookId}.html 模板插值。
+     * 这是阅友小说（笔趣阁 customOrder=89 的头部源）能搜到书的关键。
+     */
+    private fun jsonApiSearch(raw: String, source: BookSourceEntity, keyword: String): List<BookSearchResult> {
+        val text = raw.trim()
+        if (!text.startsWith("{") && !text.startsWith("[")) return emptyList()
+        val root = runCatching { JSONTokener(text).nextValue() }.getOrNull() ?: return emptyList()
+        val rules = BookRulesCodec.fromJson(source.rules)?.search ?: return emptyList()
+        val listRule = rules.list.trim()
+        if (listRule.isBlank()) return emptyList()
+        // 找结果数组：逐级取 data.list，或递归找任意深度的 list 字段（$..list）
+        val arr = findJsonArray(root, listRule) ?: return emptyList()
+        val out = ArrayList<BookSearchResult>()
+        for (i in 0 until arr.length()) {
+            val item = arr.opt(i) as? JSONObject ?: continue
+            val title = jsonFieldText(item, rules.name).let { stripJsonNoise(it) }
+            if (title.isBlank()) continue
+            val bookUrl = jsonBookUrl(item, rules.url, source.baseUrl) ?: continue
+            // isNavigation 会检查 bookUrl 必须是 http 开头，必须传真实 URL 而不是空串
+            if (BookResultFilter.isNavigation(title, bookUrl)) continue
+            out.add(
+                BookSearchResult(
+                    sourceId = source.id,
+                    sourceName = source.name,
+                    title = title,
+                    author = stripJsonNoise(jsonFieldText(item, rules.author)),
+                    coverUrl = stripJsonNoise(jsonFieldText(item, rules.cover)),
+                    summary = stripJsonNoise(jsonFieldText(item, rules.summary)).take(120),
+                    bookUrl = bookUrl,
+                    sourceQuality = source.sortOrder
+                )
+            )
+            if (out.size >= 20) break
+        }
+        return out
+    }
+
+    /** 在 JSON 树里找结果数组：支持 $.data.list[*] / data.list / $..list[*] */
+    private fun findJsonArray(root: Any?, rule: String): JSONArray? {
+        if (root == null) return null
+        val clean = rule.trim().trimStart('$').trimStart('.').removeSuffix("[*]").trim('.')
+        if (clean.isEmpty()) return root as? JSONArray
+        val parts = clean.split('.').filter { it.isNotBlank() }
+        // $..list[*] 表示递归找任意深度的 list
+        if (rule.contains("..")) {
+            val deep = parts.lastOrNull() ?: return null
+            return findJsonKey(root, deep) as? JSONArray
+        }
+        var cur: Any? = root
+        for (p in parts) {
+            cur = when (cur) {
+                is JSONObject -> cur.opt(p)
+                is JSONArray -> p.toIntOrNull()?.let { cur.opt(it) }
+                else -> null
+            } ?: return null
+        }
+        return cur as? JSONArray
+    }
+
+    /** 递归查找 JSON 里的某个 key（深度优先），用于 $..list[*] */
+    private fun findJsonKey(node: Any?, key: String): Any? {
+        when (node) {
+            is JSONObject -> {
+                if (node.has(key)) return node.opt(key)
+                node.keys().forEach { k ->
+                    val found = findJsonKey(node.opt(k), key)
+                    if (found != null) return found
+                }
+            }
+            is JSONArray -> for (i in 0 until node.length()) {
+                val found = findJsonKey(node.opt(i), key)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    /** 取 JSON 字段的文本值，支持 $.field / field / 简单 data.list 路径 */
+    private fun jsonFieldText(obj: Any?, rule: String): String {
+        if (obj == null || rule.isBlank()) return ""
+        // 去掉 bookName##正则 这类清洗后缀，清洗在 stripJsonNoise 统一做
+        val path = rule.substringBefore("##").trim().trimStart('$').trimStart('.').trim()
+        if (path.isEmpty()) return ""
+        var cur: Any? = obj
+        for (p in path.split('.').filter { it.isNotBlank() }) {
+            cur = (cur as? JSONObject)?.opt(p) ?: return ""
+        }
+        return when (cur) {
+            is String -> cur
+            is Number, is Boolean -> cur.toString()
+            else -> ""
+        }
+    }
+
+    /** 书名/作者等字段的文本清洗：去掉书名号残留、括号备注、空白压缩 */
+    private fun stripJsonNoise(s: String): String = s
+        .replace(Regex("\\s+"), " ")
+        .replace(Regex("[（(][^）)]*[）)]"), "")
+        .trim()
+
+    /** 结果 URL：支持 http://…/{$.wapBookId}.html 模板插值 */
+    private fun jsonBookUrl(item: JSONObject, rule: String, baseUrl: String): String? {
+        if (rule.isBlank()) return null
+        val value = if (rule.contains("{") && rule.contains("$")) {
+            val sb = StringBuilder(rule)
+            val matches = Regex("\\{\\$?\\.?([A-Za-z0-9_]+)(?::[^}]*)?\\}").findAll(rule).toList()
+            // 从后往前替换，避免索引错乱
+            for (m in matches.asReversed()) {
+                val field = m.groupValues[1]
+                val v = jsonFieldText(item, field)
+                sb.replace(m.range.first, m.range.last + 1, v)
+            }
+            sb.toString()
+        } else jsonFieldText(item, rule)
+        if (value.isBlank()) return null
+        return if (value.startsWith("http", true)) value
+        else HtmlRules.resolveUrl(value, baseUrl).takeIf { it.startsWith("http", true) }
     }
 
     /** 通用搜索兜底：不依赖书源选择器，直接把页面上「文字含关键词」的链接当搜索结果 */

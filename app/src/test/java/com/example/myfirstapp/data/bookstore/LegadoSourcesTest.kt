@@ -48,8 +48,19 @@ class LegadoSourcesTest {
             ) complete++
         }
         assertTrue("规则齐全的书源应超过 1000 条，实际 $complete", complete > 1000)
-        assertEquals("应启用 653 条当代源 + 50 条高权重旧格式源", 703, enabledCount)
+        // v3.74：703 + 新启用的 3 条「爱下电子书」（旧格式 enable:true 曾被误判停用）
+        assertEquals("应启用 653 条当代源 + 50 条高权重旧格式源 + 3 条爱下电子书", 706, enabledCount)
         assertTrue("不能全启用（否则会搜到坏源导致一本都搜不到）", enabledCount < array.length())
+
+        // v3.74：笔趣阁主力源「阅友小说」「爱下电子书」必须在本地启用且排头部，否则等于没有
+        val byId = (0 until array.length()).associate {
+            val o = array.getJSONObject(it); o.optString("id") to o
+        }
+        for (id in listOf("legado_0420", "legado_0022", "legado_0705", "legado_1094", "legado_1095")) {
+            val o = byId.getValue(id)
+            assertTrue("$id(${o.optString("name")}) 必须启用", o.optBoolean("enabled", false))
+            assertTrue("$id 必须排在搜索头部（sortOrder<200）", o.optInt("sortOrder", 9999) < 200)
+        }
 
         // v3.73：从笔趣阁 APK dex 证实搜索取源 SQL 是 `order by customOrder`（不是 weight！），
         // 因此按 customOrder 为主键回填 sortOrder，越小越优质，优质源先被搜索命中。
