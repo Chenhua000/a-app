@@ -21,6 +21,7 @@ import com.example.myfirstapp.domain.ParsedLocalBook
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -100,7 +101,9 @@ class BookRepository(
                 u.startsWith("http", true) && u.contains("{{key}}") &&
                     !u.contains("@js") && !u.contains("<js>") && !u.contains("{{java.")
             }
-            val sources = searchable.take(sourceLimit)
+            // v3.72 书源优先级：sortOrder 是从笔趣阁 weight/respondTime/customOrder 算出的质量排名
+            // （越小越优质），按它升序排——最好最优的书源先搜，冷门/失效源垫后。
+            val sources = searchable.sortedBy { it.sortOrder }.take(sourceLimit)
 
             fun clean(list: List<BookSearchResult>): List<BookSearchResult> {
                 val ranked = list
@@ -117,13 +120,38 @@ class BookRepository(
             }
 
             // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
-            // 第一条结果出来几百毫秒就能显示；并发 64 + 搜索短超时，让 206 个源都能轮到。
+            // 第一条结果出来几百毫秒就能显示。
             val semaphore = Semaphore(32)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
-            // +1 是云端聚合搜索任务；它不用 semaphore（只有一个请求）
+            // 命中足够多本「不同」的书就不再启动低优先级档（云端结果不算：它的地址读不了正文）。
+            // 这就是笔趣阁式「好源先搜，搜到就用；搜不到再优先级递减」。
+            val hitTitles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+            fun enough() = hitTitles.size >= 4
+            // pending 预置全部源：分档被跳过时也要递减，否则 channel 不会关闭。
+            // +1 是云端聚合搜索任务（它不用 semaphore，只有一个请求）。
             val pending = java.util.concurrent.atomic.AtomicInteger(sources.size + 1)
             val acc = mutableListOf<BookSearchResult>()
+
+            fun launchSource(source: BookSourceEntity) {
+                scope.launch {
+                    semaphore.acquire()
+                    try {
+                        val got = runCatching { searchInSource(source, keyword) }
+                            .onFailure { if (it is CancellationException) throw it }
+                            .getOrDefault(emptyList())
+                        if (got.isNotEmpty()) {
+                            channel.trySend(got)
+                            feedbackQuality(source.id, -2)   // 搜到了：升位
+                        } else {
+                            feedbackQuality(source.id, 1)    // 没搜到：降位
+                        }
+                    } finally {
+                        semaphore.release()
+                        if (pending.decrementAndGet() == 0) channel.close()
+                    }
+                }
+            }
             try {
                 // 笔趣阁「书城网络」用的阅文官方搜索接口：稳定、秒回、带作者和简介。
                 // 2023 年那批书源大量失效，这条云端兜底保证「随便搜都有结果」。
@@ -139,19 +167,19 @@ class BookRepository(
                         if (pending.decrementAndGet() == 0) channel.close()
                     }
                 }
-                sources.forEach { source ->
-                    scope.launch {
-                        semaphore.acquire()
-                        try {
-                            val got = runCatching { searchInSource(source, keyword) }
-                                .onFailure { if (it is CancellationException) throw it }
-                                .getOrDefault(emptyList())
-                            if (got.isNotEmpty()) channel.trySend(got)
-                        } finally {
-                            semaphore.release()
-                            if (pending.decrementAndGet() == 0) channel.close()
-                        }
-                    }
+                // 质量分档：第一档优质源立即搜；命中 4 本以上就停，不再浪费请求在坏源上；
+                // 否则 0.7s / 1.9s 依次补发中档、低档源——优先级递减。
+                val tier1 = sources.take(40)
+                val tier2 = sources.drop(40).take(90)
+                val tier3 = sources.drop(130)
+                tier1.forEach(::launchSource)
+                scope.launch {
+                    delay(700)
+                    if (!enough()) tier2.forEach(::launchSource)
+                    else pending.addAndGet(-tier2.size)
+                    delay(1_200)
+                    if (!enough()) tier3.forEach(::launchSource)
+                    else pending.addAndGet(-tier3.size)
                 }
                 var lastEmit = 0L
                 withTimeoutOrNull(windowMs) {
@@ -161,6 +189,7 @@ class BookRepository(
                         if (res.isClosed) break
                         val r = res.getOrNull() ?: continue
                         acc.addAll(r)
+                        r.forEach { if (it.sourceId != "cloud_qq") hitTitles.add(it.title.trim()) }
                         val now = System.currentTimeMillis()
                         if (onPartial != null && now - lastEmit >= 800) {
                             lastEmit = now
@@ -178,6 +207,15 @@ class BookRepository(
             onPartial?.invoke(finalResult)
             finalResult
         }
+
+    /**
+     * 运行时质量反馈（v3.72）：把「能不能搜到 / 能不能抓到正确正文」写回书源排名，
+     * 让优先级随使用越来越准——比静态的 2023 年权重更贴近当前网络。
+     * 失败不抛：反馈只是优化，绝不能影响搜索/阅读主流程。
+     */
+    private suspend fun feedbackQuality(id: String, delta: Int) {
+        runCatching { database.bookSourceDao().adjustQuality(id, delta) }
+    }
 
     /**
      * 云端聚合搜索兜底：笔趣阁内置的「书城网络」源用的就是阅文官方搜索接口，
@@ -278,11 +316,12 @@ class BookRepository(
             val all = database.bookSourceDao().listSources()
             // 只搜**已启用**的源（笔趣阁原本开启的 654 条），「可用」精选优先
             val enabled = all.filter { it.enabled }
-            val usable = enabled.filter { it.groupName == "笔趣阁·可用" }
-            var sources = usable + enabled.filterNot { it.groupName == "笔趣阁·可用" }
+            var sources = enabled
             if (sources.isEmpty()) sources = all.filter { it.groupName == "笔趣阁·可用" }
             if (sources.isEmpty()) sources = all.filter { it.searchUrl.isNotBlank() }
-            sources = sources.take(sourceLimit)
+            // v3.72：立即阅读也按质量排名走——先试笔趣阁验证过的高权重源，
+            // 第一个命中的就是最可能抓到正确正文的源（不再是「谁先响应谁上」）。
+            sources = sources.sortedBy { it.sortOrder }.take(sourceLimit)
             if (sources.isEmpty()) return@withContext emptyList()
 
             val semaphore = Semaphore(32)
@@ -293,13 +332,18 @@ class BookRepository(
             val scope = CoroutineScope(io + SupervisorJob())
             val firstHit: List<BookSearchResult> = try {
                 sources.forEach { source ->
-                    scope.launch {
+                        scope.launch {
                         semaphore.acquire()
                         try {
                             val got = runCatching { searchInSource(source, keyword) }
                                 .onFailure { if (it is CancellationException) throw it }
                                 .getOrDefault(emptyList())
-                            if (got.isNotEmpty()) channel.trySend(got)
+                            if (got.isNotEmpty()) {
+                                channel.trySend(got)
+                                feedbackQuality(source.id, -2)
+                            } else {
+                                feedbackQuality(source.id, 1)
+                            }
                         } finally {
                             semaphore.release()
                         }
@@ -351,7 +395,8 @@ class BookRepository(
                         coverUrl = HtmlRules.firstText(element, rules.search.cover, source.baseUrl),
                         summary = HtmlRules.firstText(element, rules.search.summary, source.baseUrl)
                             .take(120),
-                        bookUrl = bookUrl
+                        bookUrl = bookUrl,
+                        sourceQuality = source.sortOrder
                     )
                 )
             }
@@ -396,7 +441,8 @@ class BookRepository(
                     author = "",
                     coverUrl = "",
                     summary = "",
-                    bookUrl = href
+                    bookUrl = href,
+                    sourceQuality = source.sortOrder
                 )
             )
         }
@@ -686,9 +732,13 @@ class BookRepository(
 
         // 抽出来的东西必须像正文：目录页 / 书详情页 / 反爬空壳一律判失败，
         // 既不缓存（否则一直显示错内容），也让阅读器的「自动换源」接手去找能读的源。
-        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) throw IllegalStateException(
-            "这个源没抓到可信正文（页面约 ${html.length} 字节，多半是反爬空壳或抽成了目录/详情页）"
-        )
+        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) {
+            // 能搜到却抓错正文的源要降位，下次搜索/换源优先用别的源
+            feedbackQuality(source.id, 10)
+            throw IllegalStateException(
+                "这个源没抓到可信正文（页面约 ${html.length} 字节，多半是反爬空壳或抽成了目录/详情页）"
+            )
+        }
         database.chapterCacheDao().upsert(
             ChapterCacheEntity(
                 url = chapter.url,
@@ -698,6 +748,8 @@ class BookRepository(
                 savedAtMillis = System.currentTimeMillis()
             )
         )
+        // 真正产出过可读正文 → 强力升位，后续搜索/自动换源会优先用它
+        feedbackQuality(source.id, -12)
         ChapterContent(chapter.title, chapter.url, content, false)
     }
 

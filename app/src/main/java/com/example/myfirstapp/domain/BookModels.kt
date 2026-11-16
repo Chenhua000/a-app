@@ -8,7 +8,9 @@ data class BookSearchResult(
     val author: String,
     val coverUrl: String,
     val summary: String,
-    val bookUrl: String
+    val bookUrl: String,
+    /** 书源质量排名（越小越优质，来自笔趣阁 weight/respondTime + 运行时反馈），用于挑默认源 */
+    val sourceQuality: Int = Int.MAX_VALUE
 ) {
     /** 用于去重：同一本书在不同书源里算一条 */
     val dedupeKey: String get() = (title + "|" + author).trim()

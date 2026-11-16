@@ -213,7 +213,14 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
                 _quickReadState.value = QuickReadState.Idle
                 return@launch
             }
-            val first = results.first()
+            // 必须优先「书名就是这本书」的结果：有些源搜「武当派」返回的是
+            // 《从武当派开始肝经验》这类相关书，直接拿去读就会抓到站点说明页/错书。
+            val norm = { s: String -> s.replace(Regex("[\\s《》()（）\\[\\]【】]"), "") }
+            val key = norm(keyword).lowercase()
+            val exact = results.filter { norm(it.title).lowercase() == key }
+            val first = (if (exact.isNotEmpty()) exact else results)
+                .sortedBy { it.sourceQuality }
+                .first()
             val patched = if (coverUrl.isNullOrBlank()) first else first.copy(
                 coverUrl = if (first.coverUrl.isBlank()) coverUrl else first.coverUrl
             )
@@ -272,7 +279,7 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             .filter { norm(it.title) == target }
             .distinctBy { it.sourceId }
             // 默认优先「能在尘剑里直接读」的源，云端（QQ 介绍页）只作兜底候选
-            .sortedBy { if (it.sourceId == "cloud_qq") 1 else 0 }
+            .sortedWith(compareBy({ if (it.sourceId == "cloud_qq") 1 else 0 }, { it.sourceQuality }))
             .ifEmpty { listOf(result) }
         detailJob?.cancel()
         _detail.value = DetailState(
@@ -301,8 +308,12 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             val t = norm(it.title)
             t.isNotEmpty() && (t.contains(nkw) || nkw.contains(t))
         }.ifEmpty { list }
-        return matched.distinctBy { it.sourceId }
-            .sortedBy { if (it.sourceId == "cloud_qq") 1 else 0 }
+        // 「武当派」和「从武当派开始肝经验」不是同一本：只要有完全同名的候选，
+        // 就绝不能把「书名里包含关键词」的相关书当成本书的源。
+        val exact = matched.filter { norm(it.title).lowercase() == nkw.lowercase() }
+        val pool = if (exact.isNotEmpty()) exact else matched
+        return pool.distinctBy { it.sourceId }
+            .sortedWith(compareBy({ if (it.sourceId == "cloud_qq") 1 else 0 }, { it.sourceQuality }))
     }
 
     /**

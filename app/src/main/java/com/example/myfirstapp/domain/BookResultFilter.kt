@@ -79,7 +79,12 @@ object BookResultFilter {
             groups.getOrPut(key) { mutableListOf() }.add(r)
         }
         return groups.values.map { group ->
-            val base = group.firstOrNull { it.sourceId != "cloud_qq" } ?: group.first()
+            // 主条目取「质量排名最高（sortOrder 最小）」的非云端源：
+            // 之前取最先响应的源，常常是能搜到但正文抓错的坏源；现在点开就读优质源。
+            val base = group.filter { it.sourceId != "cloud_qq" }
+                .minByOrNull { it.sourceQuality }
+                ?: group.minByOrNull { it.sourceQuality }
+                ?: group.first()
             val summary = base.summary.ifBlank {
                 group.firstOrNull { it.summary.isNotBlank() }?.summary.orEmpty()
             }

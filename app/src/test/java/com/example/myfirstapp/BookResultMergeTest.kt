@@ -18,8 +18,9 @@ class BookResultMergeTest {
         author: String = "作者",
         cover: String = "",
         summary: String = "",
-        url: String = "http://x/$sourceId"
-    ) = BookSearchResult(sourceId, "源$sourceId", title, author, cover, summary, url)
+        url: String = "http://x/$sourceId",
+        quality: Int = Int.MAX_VALUE
+    ) = BookSearchResult(sourceId, "源$sourceId", title, author, cover, summary, url, quality)
 
     @Test
     fun sameBookFromManySourcesBecomesOneRow() {
@@ -70,6 +71,30 @@ class BookResultMergeTest {
             r("s3", "《同名书》", author = "作者乙")
         )
         assertEquals(1, BookResultFilter.mergeByBook(list).size)
+    }
+
+    @Test
+    fun bestQualitySourceBecomesPrimary() {
+        // 坏源先响应，但质量排名差（数字大）；优质源响应慢也要用它作默认源
+        val list = listOf(
+            r("bad", "深空彼岸", quality = 1500),
+            r("good", "深空彼岸", quality = 153),
+            r("mid", "深空彼岸", quality = 700)
+        )
+        val merged = BookResultFilter.mergeByBook(list)
+        assertEquals(1, merged.size)
+        assertEquals("good", merged[0].sourceId)
+    }
+
+    @Test
+    fun cloudNeverBecomesPrimaryEvenWithBestQuality() {
+        val list = listOf(
+            BookSearchResult("cloud_qq", "云端", "道诡异仙", "", "", "云端简介", "http://qq/intro", 1),
+            r("good", "道诡异仙", quality = 800)
+        )
+        val merged = BookResultFilter.mergeByBook(list)
+        assertEquals("good", merged[0].sourceId)
+        assertEquals("云端简介", merged[0].summary)
     }
 
     @Test

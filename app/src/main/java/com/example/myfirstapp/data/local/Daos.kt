@@ -170,6 +170,14 @@ interface BookSourceDao {
     @Query("UPDATE book_sources SET lastStatus = :status, lastTestedAt = :testedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String?, testedAt: Long)
 
+    /**
+     * 运行时质量反馈（v3.72）：sortOrder 越小越优质。
+     * 搜到书 / 抓到正确正文 → delta 为负（升位）；搜不到 / 正文是垃圾 → delta 为正（降位）。
+     * 夹在 1..5000，避免反馈把排名推到离谱的值。
+     */
+    @Query("UPDATE book_sources SET sortOrder = MAX(1, MIN(5000, sortOrder + :delta)) WHERE id = :id")
+    suspend fun adjustQuality(id: String, delta: Int)
+
     @Query("SELECT COUNT(*) FROM book_sources")
     suspend fun count(): Int
 

@@ -187,6 +187,18 @@ class LegadoSelectorTest {
             HtmlRules.isPlausibleContent("<div class='chapter-list'>$directory</div>")
         )
         org.junit.Assert.assertFalse("反爬空壳不该通过", HtmlRules.isPlausibleContent("<div>请稍后</div>"))
+        // 站点说明/相关推荐页：字数不少、链接不多，但根本不是章节正文
+        val notice = """
+            <div id='content'>从武当派开始肝经验小说 相关
+            ① 《从武当派开始肝经验》是佛手金卷所写的一本完结全本奇幻玄幻类的小说。
+            ② 本站提供全本阅读的所有章节均为网友更新，属发布者个人行为，与全站立场无关。
+            ③ 如果您发现章节有错误，请及时通知我们。您的热心是对我们最大的支持。
+            ④ 如果您对全集的作品版权、内容等方有疑问请联系站长处理。</div>
+        """.trimIndent()
+        org.junit.Assert.assertFalse(
+            "相关小说/免责声明页不该被当正文",
+            HtmlRules.isPlausibleContent(notice)
+        )
     }
 
     @Test

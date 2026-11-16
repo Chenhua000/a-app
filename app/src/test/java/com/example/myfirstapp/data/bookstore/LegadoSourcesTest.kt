@@ -34,8 +34,10 @@ class LegadoSourcesTest {
             assertTrue("id 重复：$id", ids.add(id))
             assertTrue("$id 缺名称", item.optString("name").isNotBlank())
             assertTrue("$id 缺搜索地址", item.optString("searchUrl").isNotBlank())
-            // 只启用笔趣阁原本开启的 654 条（其余 1090 条默认关闭，避免搜索时混入坏源）
+            // 启用笔趣阁原本开启的 654 条 + 50 条旧格式但 weight>=1000 的高权重源
             if (item.optBoolean("enabled", false)) enabledCount++
+            // v3.72：每条源必须有质量排名（笔趣阁 weight/respondTime/customOrder 算出，越小越优质）
+            assertTrue("$id 缺质量排名 sortOrder", item.optInt("sortOrder", 0) > 0)
             assertTrue("$id 缺分组", item.optString("group").isNotBlank())
 
             val rules = BookRulesCodec.fromJson(item.optJSONObject("rules")?.toString().orEmpty())
@@ -46,8 +48,16 @@ class LegadoSourcesTest {
             ) complete++
         }
         assertTrue("规则齐全的书源应超过 1000 条，实际 $complete", complete > 1000)
-        assertEquals("应只启用笔趣阁原本开启的 653 条", 653, enabledCount)
+        assertEquals("应启用 653 条当代源 + 50 条高权重旧格式源", 703, enabledCount)
         assertTrue("不能全启用（否则会搜到坏源导致一本都搜不到）", enabledCount < array.length())
+
+        // 质量排名必须和笔趣阁权重一致：高权重源排在普通源前面
+        val ranks = (0 until array.length()).associate {
+            val o = array.getJSONObject(it); o.optString("id") to o.optInt("sortOrder")
+        }
+        assertTrue("高权重源应排在低权重源前面",
+            ranks.getValue("legado_0104") < ranks.getValue("legado_0460") &&
+            ranks.getValue("legado_0460") < ranks.getValue("legado_0001"))
     }
 
     @Test

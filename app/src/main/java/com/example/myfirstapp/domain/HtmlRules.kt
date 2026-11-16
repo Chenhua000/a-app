@@ -209,6 +209,16 @@ object HtmlRules {
         // 「如何下载小说 / RAR格式下载 / 全本TXT」这类下载说明页也不是正文
         val download = listOf("如何下载小说", "格式下载", "全本TXT", "WINRAR", "下载地址", "请下载")
         if (download.count { text.contains(it, ignoreCase = true) } >= 2) return false
+        // 「XX小说 相关 / 本站提供 / 免责声明」这类站点说明页：字数够、链接也不多，
+        // 但内容是①②③④式的版权/投稿须知，不是章节正文。搜到能读、正文却是这种页的源
+        // 必须判假，否则自动换源不会触发、质量反馈还会把坏源往上顶。
+        val notice = listOf(
+            "本站提供", "与全站立场无关", "网友更新", "请及时通知我们", "作品版权",
+            "相关小说", "小说 相关", "全本阅读的所有章节", "所有章节均为", "如有侵权",
+            "免责声明", "版权声明", "章节有错误", "请勿上传", "本站所有小说"
+        )
+        if (notice.count { text.contains(it) } >= 2) return false
+        if (text.contains("相关") && Regex("[①②③④⑤⑥]").findAll(text).count() >= 3) return false
         return true
     }
 

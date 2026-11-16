@@ -84,7 +84,10 @@ class MyFirstApp : Application() {
         // v3.59：按原始 `enabled` 标志重导——只启用笔趣阁原本开启的 654 条（其余 1090 条保持关闭）。
         // 以前把 1744 条全启用、又固定搜「可用」组按名字前 60 个，结果搜的全是坏源（60 个里仅 9 个好源），
         // 所以「源一堆却一本搜不到」。现在只启用精选 654 条，跟笔趣阁一致。
-        val dataVer = 8
+        // v3.72：dataVer=9——① 按笔趣阁原始 weight/respondTime/customOrder 回填 sortOrder（质量排名，
+        // 越小越优质），搜索时按排名分档、优质源先搜；② 额外启用 50 条旧格式但 weight>=1000 的高权重源
+        // （笔趣阁里 `enable:true`，v3.59 转换时被误判为关闭，其中懒人听书 weight 21950 等其实是主力源）。
+        val dataVer = 9
         if (prefs.getInt("legado_data_ver", 0) < dataVer) {
             val text = readLegadoAsset()
             if (text != null) {
