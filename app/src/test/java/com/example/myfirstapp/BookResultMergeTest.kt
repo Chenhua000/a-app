@@ -62,11 +62,23 @@ class BookResultMergeTest {
     }
 
     @Test
-    fun differentAuthorsAreNotMerged() {
+    fun sameTitleWithMissingOrDifferentAuthorStillMerges() {
+        // 很多源的 author 是空的；只要书名相同就应合并成列表里的一条（多源留到详情页切换）
         val list = listOf(
             r("s1", "同名书", author = "作者甲"),
-            r("s2", "同名书", author = "作者乙")
+            r("s2", "同名书", author = ""),
+            r("s3", "《同名书》", author = "作者乙")
         )
-        assertEquals(2, BookResultFilter.mergeByBook(list).size)
+        assertEquals(1, BookResultFilter.mergeByBook(list).size)
+    }
+
+    @Test
+    fun titlesWithPunctuationAreMerged() {
+        val list = listOf(
+            r("s1", "斗破苍穹"),
+            r("s2", "《斗破苍穹》")
+        )
+        // 书名号会被归一化掉，同一本书
+        assertEquals(1, BookResultFilter.mergeByBook(list).size)
     }
 }

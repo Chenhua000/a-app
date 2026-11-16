@@ -66,10 +66,18 @@ object BookResultFilter {
      *  - 简介 / 封面 / 作者 谁有就用谁的（云端结果通常带简介，可以借来用）。
      * 返回顺序 = 首次出现顺序，不打断原有相关性排序。
      */
+    /** 合并用的书名键：去掉空格 / 书名号 / 各种括号并转小写。
+     *  不能带作者——很多源搜出来的 author 是空的，带作者会导致同一本书合并不了、列表重复。 */
+    private fun titleKey(title: String): String =
+        title.replace(Regex("[\\s《》()（）\\[\\]【】:：·.,，。!！?？]"), "").lowercase()
+
     fun mergeByBook(results: List<BookSearchResult>): List<BookSearchResult> {
         if (results.isEmpty()) return emptyList()
         val groups = LinkedHashMap<String, MutableList<BookSearchResult>>()
-        results.forEach { r -> groups.getOrPut(r.dedupeKey) { mutableListOf() }.add(r) }
+        results.forEach { r ->
+            val key = titleKey(r.title).ifEmpty { r.dedupeKey }
+            groups.getOrPut(key) { mutableListOf() }.add(r)
+        }
         return groups.values.map { group ->
             val base = group.firstOrNull { it.sourceId != "cloud_qq" } ?: group.first()
             val summary = base.summary.ifBlank {

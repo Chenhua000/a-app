@@ -169,6 +169,16 @@ class NovelViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 NovelSearchState.Success(mergeByBook(patched))
             }
+            // 列表已经出来了；缺简介的条目后台再补，补完刷新一次，不拖慢首屏
+            if (patched.isNotEmpty() && patched.any { it.summary.isBlank() }) {
+                viewModelScope.launch {
+                    val enriched = runCatching { repository.enrichSummaries(patched) }.getOrDefault(patched)
+                    if (enriched != patched) {
+                        allResults = enriched
+                        _searchState.value = NovelSearchState.Success(mergeByBook(enriched))
+                    }
+                }
+            }
         }
     }
 

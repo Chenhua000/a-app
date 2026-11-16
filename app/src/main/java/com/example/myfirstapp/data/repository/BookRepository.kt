@@ -82,8 +82,8 @@ class BookRepository(
      */
     suspend fun search(
         query: String,
-        sourceLimit: Int = 1000,
-        windowMs: Long = 20_000,
+        sourceLimit: Int = 320,
+        windowMs: Long = 14_000,
         onPartial: ((List<BookSearchResult>) -> Unit)? = null
     ): List<BookSearchResult> =
         withContext(io) {
@@ -118,7 +118,7 @@ class BookRepository(
 
             // 不用 supervisorScope 干等全部源（阻塞 IO 取消不掉）：边搜边回调，
             // 第一条结果出来几百毫秒就能显示；并发 64 + 搜索短超时，让 206 个源都能轮到。
-            val semaphore = Semaphore(64)
+            val semaphore = Semaphore(32)
             val channel = Channel<List<BookSearchResult>>(Channel.UNLIMITED)
             val scope = CoroutineScope(io + SupervisorJob())
             // +1 是云端聚合搜索任务；它不用 semaphore（只有一个请求）
@@ -162,7 +162,7 @@ class BookRepository(
                         val r = res.getOrNull() ?: continue
                         acc.addAll(r)
                         val now = System.currentTimeMillis()
-                        if (onPartial != null && now - lastEmit >= 250) {
+                        if (onPartial != null && now - lastEmit >= 800) {
                             lastEmit = now
                             onPartial(clean(acc))
                         }
@@ -172,7 +172,9 @@ class BookRepository(
                 scope.cancel()
                 channel.close()
             }
-            val finalResult = enrichSummaries(clean(acc))
+            // 注意：这里**不补简介**。补简介要额外抓 4~6 个书页（最多 3s），
+            // 会拖慢「搜索结果出现」的时间。改由 VM 在列表渲染之后再后台补。
+            val finalResult = clean(acc)
             onPartial?.invoke(finalResult)
             finalResult
         }
@@ -214,7 +216,7 @@ class BookRepository(
      * 给搜索结果补简介：规则没给简介的条目，去书页抓 meta description / 简介容器补上。
      * 只补前几条、且有 6s 整体上限，避免把搜索拖太久。
      */
-    private suspend fun enrichSummaries(list: List<BookSearchResult>): List<BookSearchResult> {
+    suspend fun enrichSummaries(list: List<BookSearchResult>): List<BookSearchResult> {
         val targets = list.filterIndexed { i, r -> i < 12 && r.summary.isBlank() }
             .distinctBy { it.bookUrl }
             .take(6)
@@ -508,7 +510,7 @@ class BookRepository(
         // 不能把异常抛出去——上层 viewModelScope.launch 没兜住会直接闪退。
         var doc = try {
             HtmlRules.parse(
-                HttpFetcher.withTimeouts(6_000, 10_000) {
+                HttpFetcher.withTimeouts(5_000, 8_000) {
                     HttpFetcher.get(bookUrl, source.charset, sourceHeaders(source))
                 },
                 bookUrl
@@ -524,7 +526,7 @@ class BookRepository(
                 // 二级目录页抓不到时退回用第一页继续解析，而不是把异常抛出去
                 doc = try {
                     HtmlRules.parse(
-                        HttpFetcher.withTimeouts(6_000, 10_000) {
+                        HttpFetcher.withTimeouts(5_000, 8_000) {
                             HttpFetcher.get(entry, source.charset, sourceHeaders(source))
                         },
                         entry
@@ -561,7 +563,7 @@ class BookRepository(
             if (directoryLink != null) {
                 runCatching {
                     HtmlRules.parse(
-                        HttpFetcher.withTimeouts(6_000, 10_000) {
+                        HttpFetcher.withTimeouts(5_000, 8_000) {
                             HttpFetcher.get(directoryLink, source.charset, sourceHeaders(source))
                         },
                         directoryLink
@@ -623,7 +625,7 @@ class BookRepository(
         val anchorId = if (hash >= 0) chapter.url.substring(hash + 1) else null
 
         val headers = sourceHeaders(source)
-        suspend fun fetchPage(url: String): String = HttpFetcher.withTimeouts(6_000, 12_000) {
+        suspend fun fetchPage(url: String): String = HttpFetcher.withTimeouts(5_000, 8_000) {
             HttpFetcher.get(url, source.charset, headers)
         }
         val siblings = if (anchorId.isNullOrBlank()) emptySet()
@@ -642,23 +644,27 @@ class BookRepository(
         var doc = HtmlRules.parse(html, baseUrl)
         android.util.Log.d("BookRepository", "正文页 $baseUrl html=${html.length}字 可见文本=${doc.text().length}字")
 
-        // ① 书源带 JS 正文规则、且是「纯字符串处理」类：先让 WebView 沙箱跑一遍。
-        //    依赖 java.* / JSONPath 的规则跑不了，会跳过、退回 CSS（不影响主流程）。
-        var content = ""
+        // 抽取顺序：CSS（最快）→ JS 沙箱（WebView 启动慢，只在 CSS 不行时才用）→ 通用兜底
         val jsRule = rules.content.jsContent
-        if (jsRule.isNotBlank() && JsSandbox.isExecutable(jsRule) && appContext != null) {
-            val script = JsSandbox.extractScript(jsRule)
-            val out = runCatching { JsSandbox.eval(appContext, script, html) }.getOrNull()
-            if (!out.isNullOrBlank()) {
-                val wrapped = if (out.contains("<")) out else "<div>" + out.replace("\n", "<br>") + "</div>"
-                if (HtmlRules.isPlausibleContent(wrapped)) {
-                    content = out
-                    android.util.Log.d("BookRepository", "JS 规则抽到正文 ${out.length} 字")
+        val jsUsable = jsRule.isNotBlank() && JsSandbox.isExecutable(jsRule) && appContext != null
+        var content = ""
+        if (rules.content.selector.isNotBlank()) {
+            content = extractFrom(html, baseUrl)
+        }
+        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) {
+            if (jsUsable) {
+                val script = JsSandbox.extractScript(jsRule)
+                val out = runCatching { JsSandbox.eval(appContext!!, script, html, 4_000) }.getOrNull()
+                if (!out.isNullOrBlank()) {
+                    val wrapped = if (out.contains("<")) out else "<div>" + out.replace("\n", "<br>") + "</div>"
+                    if (HtmlRules.isPlausibleContent(wrapped)) content = out
                 }
             }
         }
-        // ② 常规 CSS 抽取
-        if (content.isBlank()) content = extractFrom(html, baseUrl)
+        // 还不行就走通用兜底（打分选正文容器）
+        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) {
+            content = extractFrom(html, baseUrl)
+        }
 
         // 正文分页：笔趣阁（Legado）靠 nextContentUrl / ruleContentUrlNext 把一章的多页拼起来，
         // 尘剑此前只抓第一页，所以「内容缺一大半、排版不对」。现在补上自动翻页拼接。
