@@ -188,7 +188,7 @@ class BookRepository(
         val url = "https://newopensearch.reader.qq.com/wechat?keyword=" +
             URLEncoder.encode(keyword, "utf-8") + "&start=0&end=20"
         val raw = runCatching {
-            HttpFetcher.withTimeouts(5_000, 8_000) { HttpFetcher.get(url, "utf-8") }
+            HttpFetcher.withTimeouts(4_000, 6_000) { HttpFetcher.get(url, "utf-8") }
         }.getOrDefault("")
         if (raw.isBlank()) return@withContext emptyList()
         val arr = runCatching { org.json.JSONObject(raw).optJSONArray("booklist") }
@@ -510,7 +510,7 @@ class BookRepository(
         // 不能把异常抛出去——上层 viewModelScope.launch 没兜住会直接闪退。
         var doc = try {
             HtmlRules.parse(
-                HttpFetcher.withTimeouts(5_000, 8_000) {
+                HttpFetcher.withTimeouts(4_000, 6_000) {
                     HttpFetcher.get(bookUrl, source.charset, sourceHeaders(source))
                 },
                 bookUrl
@@ -526,7 +526,7 @@ class BookRepository(
                 // 二级目录页抓不到时退回用第一页继续解析，而不是把异常抛出去
                 doc = try {
                     HtmlRules.parse(
-                        HttpFetcher.withTimeouts(5_000, 8_000) {
+                        HttpFetcher.withTimeouts(4_000, 6_000) {
                             HttpFetcher.get(entry, source.charset, sourceHeaders(source))
                         },
                         entry
@@ -563,7 +563,7 @@ class BookRepository(
             if (directoryLink != null) {
                 runCatching {
                     HtmlRules.parse(
-                        HttpFetcher.withTimeouts(5_000, 8_000) {
+                        HttpFetcher.withTimeouts(4_000, 6_000) {
                             HttpFetcher.get(directoryLink, source.charset, sourceHeaders(source))
                         },
                         directoryLink
@@ -625,7 +625,7 @@ class BookRepository(
         val anchorId = if (hash >= 0) chapter.url.substring(hash + 1) else null
 
         val headers = sourceHeaders(source)
-        suspend fun fetchPage(url: String): String = HttpFetcher.withTimeouts(5_000, 8_000) {
+        suspend fun fetchPage(url: String): String = HttpFetcher.withTimeouts(4_000, 6_000) {
             HttpFetcher.get(url, source.charset, headers)
         }
         val siblings = if (anchorId.isNullOrBlank()) emptySet()
@@ -633,37 +633,29 @@ class BookRepository(
             .map { it.url.substringAfter('#', "") }
             .filter { it.isNotBlank() }
             .toSet()
-        fun extractFrom(pageHtml: String, pageUrl: String): String {
-            val d = HtmlRules.parse(pageHtml, pageUrl)
-            return if (anchorId.isNullOrBlank()) HtmlRules.extractContent(d, rules.content)
+        // 一份 HTML 只解析一次（Jsoup 解析百 KB 页面要几百毫秒，之前一页被解析了 2~4 次）
+        fun extractFromDoc(d: org.jsoup.nodes.Document): String =
+            if (anchorId.isNullOrBlank()) HtmlRules.extractContent(d, rules.content)
             else HtmlRules.extractContent(d, rules.content, anchorId, siblings)
-        }
         fun visibleLength(s: String) = s.replace(Regex("<[^>]+>"), "").length
 
+        val t0 = System.currentTimeMillis()
         var html = fetchPage(baseUrl)
         var doc = HtmlRules.parse(html, baseUrl)
-        android.util.Log.d("BookRepository", "正文页 $baseUrl html=${html.length}字 可见文本=${doc.text().length}字")
+        android.util.Log.d("BookRepository", "正文页 $baseUrl html=${html.length}字 抓取+解析 ${System.currentTimeMillis() - t0}ms")
 
-        // 抽取顺序：CSS（最快）→ JS 沙箱（WebView 启动慢，只在 CSS 不行时才用）→ 通用兜底
+        // 抽取：CSS（extractContent 内部已含选择器 + 通用兜底，不用重复调用）
         val jsRule = rules.content.jsContent
         val jsUsable = jsRule.isNotBlank() && JsSandbox.isExecutable(jsRule) && appContext != null
-        var content = ""
-        if (rules.content.selector.isNotBlank()) {
-            content = extractFrom(html, baseUrl)
-        }
-        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) {
-            if (jsUsable) {
-                val script = JsSandbox.extractScript(jsRule)
-                val out = runCatching { JsSandbox.eval(appContext!!, script, html, 4_000) }.getOrNull()
-                if (!out.isNullOrBlank()) {
-                    val wrapped = if (out.contains("<")) out else "<div>" + out.replace("\n", "<br>") + "</div>"
-                    if (HtmlRules.isPlausibleContent(wrapped)) content = out
-                }
+        var content = extractFromDoc(doc)
+        // 只有「完全抽不出正文」才动 JS 沙箱（WebView 启动就要几百毫秒，别为「不太可信」白跑）
+        if (content.isBlank() && jsUsable) {
+            val script = JsSandbox.extractScript(jsRule)
+            val out = runCatching { JsSandbox.eval(appContext!!, script, html, 2_500) }.getOrNull()
+            if (!out.isNullOrBlank()) {
+                val wrapped = if (out.contains("<")) out else "<div>" + out.replace("\n", "<br>") + "</div>"
+                if (HtmlRules.isPlausibleContent(wrapped)) content = out
             }
-        }
-        // 还不行就走通用兜底（打分选正文容器）
-        if (content.isBlank() || !HtmlRules.isPlausibleContent(content)) {
-            content = extractFrom(html, baseUrl)
         }
 
         // 正文分页：笔趣阁（Legado）靠 nextContentUrl / ruleContentUrlNext 把一章的多页拼起来，
@@ -680,11 +672,12 @@ class BookRepository(
                 if (!next.startsWith("http", true) || !visited.add(next) || next == pageUrl) break
                 val nextHtml = runCatching { fetchPage(next) }.getOrDefault("")
                 if (nextHtml.isBlank()) break
-                val part = extractFrom(nextHtml, next)
+                val nextDoc = HtmlRules.parse(nextHtml, next)
+                val part = extractFromDoc(nextDoc)
                 if (part.isBlank() || !HtmlRules.isPlausibleContent(part)) break
                 content = content + "\n" + part
                 html = nextHtml
-                doc = HtmlRules.parse(html, next)
+                doc = nextDoc
                 pageUrl = next
                 pages++
             }
